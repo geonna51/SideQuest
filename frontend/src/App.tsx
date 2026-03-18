@@ -142,7 +142,7 @@ function App(): JSX.Element {
               Similarity Score: {result.score}
             </p>
 
-            {result.url && (
+            {result.url && result.source !== 'osm' && (
               <p>
                 <a href={result.url} target="_blank" rel="noreferrer">
                   Open link

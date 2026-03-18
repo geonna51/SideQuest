@@ -25,6 +25,9 @@ reddit_conversations_path = os.path.join(reddit_directory, "conversations.json")
 reddit_utterances_path = os.path.join(reddit_directory, "utterances.jsonl")
 reddit_corpus_path = os.path.join(reddit_directory, "corpus.json")
 
+osm_directory = os.path.join(data_directory, "open_street_map")
+osm_csv_path = os.path.join(osm_directory, "osm_places.csv")
+
 # -----------------------------
 # Flask app
 # -----------------------------
@@ -309,6 +312,51 @@ def load_reddit_documents():
 
 
 # -----------------------------
+# OSM loading
+# -----------------------------
+def load_osm_documents():
+    docs = []
+    if not os.path.exists(osm_csv_path):
+        return docs
+    
+    import csv
+    with open(osm_csv_path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for idx, row in enumerate(reader):
+            title = row.get("name", "").strip()
+            if not title:
+                title = f"Location {row.get('id', idx)}"
+            
+            category = row.get("category", "").strip()
+            subcategory = row.get("subcategory", "").strip()
+            address = row.get("address", "").strip()
+            
+            description_parts = []
+            if category: description_parts.append(f"Category: {category}")
+            if subcategory: description_parts.append(f"Type: {subcategory}")
+            if address: description_parts.append(f"Address: {address}")
+            description = ", ".join(description_parts)
+            
+            search_text = " ".join([title, category, subcategory, address])
+            
+            docs.append({
+                "id": f"osm:{row.get('id', idx)}",
+                "title": title,
+                "description": description,
+                "organization": "OpenStreetMap",
+                "category": category or "location",
+                "location": address or "Ithaca Area",
+                "start_time": "",
+                "end_time": "",
+                "url": row.get("website", ""),
+                "source": "osm",
+                "doc_type": "location",
+                "search_text": search_text,
+                "raw": row,
+            })
+    return docs
+
+# -----------------------------
 # TF-IDF / cosine similarity
 # -----------------------------
 def compute_idf(num_docs, df_counter):
@@ -353,6 +401,7 @@ def build_search_index():
     docs = []
     docs.extend(load_campusgroups_documents())
     docs.extend(load_reddit_documents())
+    docs.extend(load_osm_documents())
 
     # de-dupe by source + title + time
     deduped = []
@@ -397,6 +446,7 @@ def build_search_index():
     print(f"Indexed {len(SEARCH_DOCS)} total docs")
     print(f" - CampusGroups: {sum(1 for d in SEARCH_DOCS if d['source'] == 'campusgroups')}")
     print(f" - Reddit: {sum(1 for d in SEARCH_DOCS if d['source'] == 'reddit')}")
+    print(f" - OSM: {sum(1 for d in SEARCH_DOCS if d['source'] == 'osm')}")
 
 
 def build_query_vector(query):
@@ -422,7 +472,7 @@ def search_documents(query, top_k=10, source="all"):
     if query_norm == 0.0:
         return []
 
-    allowed_sources = {"all", "campusgroups", "reddit"}
+    allowed_sources = {"all", "campusgroups", "reddit", "osm"}
     if source not in allowed_sources:
         source = "all"
 
@@ -496,6 +546,7 @@ def api_reindex():
         "indexed_documents": len(SEARCH_DOCS),
         "campusgroups_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "campusgroups"),
         "reddit_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "reddit"),
+        "osm_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "osm"),
     })
 
 
@@ -505,11 +556,13 @@ def api_search_health():
         "indexed_documents": len(SEARCH_DOCS),
         "campusgroups_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "campusgroups"),
         "reddit_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "reddit"),
+        "osm_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "osm"),
         "vocab_size": len(VOCAB),
         "campusgroups_json_found": os.path.exists(campusgroups_json_path),
         "reddit_conversations_found": os.path.exists(reddit_conversations_path),
         "reddit_utterances_found": os.path.exists(reddit_utterances_path),
         "reddit_corpus_found": os.path.exists(reddit_corpus_path),
+        "osm_csv_found": os.path.exists(osm_csv_path),
     })
 
 
