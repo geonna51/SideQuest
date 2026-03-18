@@ -18,22 +18,26 @@
   align-items: center;
 }
 
-.google-colors {
-  display: flex;
-  align-items: center;
-  font-size: 48px;
-  font-family: 'Open Sans', sans-serif;
+.sidequest-title {
+  font-size: 64px;
+  font-family: 'Kanit', sans-serif;
+  font-weight: 800;
+  margin: 0 0 15px 0;
+  background: linear-gradient(-45deg, #B31B1B, #F23D3D, #801313);
+  background-size: 300%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: animated_gradient 6s ease infinite;
+  letter-spacing: -1px;
 }
 
-.google-colors h1 {
-  margin-bottom: 0;
-  margin-right: 3px;
+@keyframes animated_gradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
-
-#google-4   { color: #F4B400; }
-#google-3   { color: #4285F4; }
-#google-0-1 { color: #0F9D58; }
-#google-0-2 { color: #DB4437; }
 
 /* ── Search bar ────────────────────────────────────────────────────────────── */
 
@@ -230,7 +234,7 @@
 }
 
 @media (max-width: 768px) {
-  .google-colors h1 { font-size: 3rem; }
+  .sidequest-title { font-size: 3rem; }
   .input-box { width: 90%; }
   #answer-box { padding: 0 1rem; }
   #messages { padding: 0 8px 8px; }

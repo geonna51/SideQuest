@@ -112,7 +112,7 @@ function Chat({ onSearchTerm }: ChatProps): JSX.Element {
           <img src={SearchIcon} alt="" />
           <input
             type="text"
-            placeholder="Ask the AI about Keeping Up with the Kardashians"
+            placeholder="Ask the AI about things to do in Ithaca..."
             value={input}
             onChange={e => setInput(e.target.value)}
             disabled={loading}
