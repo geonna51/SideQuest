@@ -1,0 +1,23 @@
+{
+  "subreddit": "Cornell",
+  "num_posts": 10744,
+  "num_comments": 63723,
+  "num_user": 7568,
+  "merged_subreddits": ["Cornell", "ithaca"],
+  "total_utterances_actual": 93382,
+  "total_speakers_actual": 9456,
+  "total_conversations_actual": 15492,
+  "users_in_both": 556,
+  "original_cornell_stats": {
+    "subreddit": "Cornell",
+    "num_posts": 10744,
+    "num_comments": 63723,
+    "num_user": 7568
+  },
+  "original_ithaca_stats": {
+    "subreddit": "ithaca",
+    "num_posts": 2728,
+    "num_comments": 16187,
+    "num_user": 2444
+  }
+}

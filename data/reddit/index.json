@@ -1,0 +1,40 @@
+{
+  "utterances-index": {
+    "score": ["<class 'int'>"],
+    "top_level_comment": ["<class 'str'>"],
+    "retrieved_on": ["<class 'int'>"],
+    "gilded": ["<class 'int'>"],
+    "gildings": ["<class 'dict'>"],
+    "subreddit": ["<class 'str'>"],
+    "stickied": ["<class 'bool'>"],
+    "permalink": ["<class 'str'>"],
+    "author_flair_text": ["<class 'str'>"]
+  },
+  "speakers-index": {},
+  "conversations-index": {
+    "title": ["<class 'str'>"],
+    "num_comments": ["<class 'int'>"],
+    "domain": ["<class 'str'>"],
+    "timestamp": ["<class 'int'>"],
+    "subreddit": ["<class 'str'>"],
+    "gilded": ["<class 'int'>"],
+    "gildings": ["<class 'dict'>"],
+    "stickied": ["<class 'bool'>"],
+    "author_flair_text": ["<class 'str'>"]
+  },
+  "overall-index": {
+    "subreddit": ["<class 'str'>"],
+    "num_posts": ["<class 'int'>"],
+    "num_comments": ["<class 'int'>"],
+    "num_user": ["<class 'int'>"],
+    "merged_subreddits": ["<class 'list'>"],
+    "total_utterances_actual": ["<class 'int'>"],
+    "total_speakers_actual": ["<class 'int'>"],
+    "total_conversations_actual": ["<class 'int'>"],
+    "users_in_both": ["<class 'int'>"],
+    "original_cornell_stats": ["<class 'dict'>"],
+    "original_ithaca_stats": ["<class 'dict'>"]
+  },
+  "version": 2,
+  "vectors": []
+}
