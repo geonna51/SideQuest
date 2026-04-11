@@ -1,0 +1,19 @@
+id,type,lon,lat,name,category,subcategory,description,location,start_time,end_time,website
+dining_2095822851,Dining Location,-76.4822066,42.4532608,Risley Dining,Cornell Dining,Restaurant,Operated by: Cornell Dining. Cuisine layout: american.,Cornell Campus Area,,,
+dining_2108337074,Dining Location,-76.4759957,42.4535179,North Star Dining,Cornell Dining,Restaurant,Operated by: Cornell Dining. Cuisine layout: Mixed.,Cornell Campus Area,,,
+dining_2108342502,Dining Location,-76.4777169,42.4559956,Robert Purcell Marketplace Eatery,Cornell Dining,Restaurant,Operated by: Cornell Dining. Cuisine layout: Mixed.,Cornell Campus Area,,,
+dining_2108342530,Dining Location,-76.4793192,42.45318,Carol's Cafe,Cornell Dining,Cafe,Operated by: Cornell Dining. Cuisine layout: coffee_shop.,Cornell Campus Area,,,
+dining_4221840489,Dining Location,-76.4753234,42.4410938,Coal Yard Cafe,Cornell Dining,Cafe,"Operated by: Cornell Dining. Cuisine layout: cake;sandwich;fish_and_chips;american;breakfast;coffee_shop;crepe;bagel;diner. Typical hours: Mo-Fr 08:00-15:00; Sa,Su 09:00-15:00.",Cornell Campus Area,,,https://www.thecoalyardcafe.com
+dining_4482618704,Dining Location,-76.4824213,42.4447323,Mattin's Cafe,Cornell Dining,Cafe,Operated by: Cornell Dining. Cuisine layout: breakfast;sandwich.,Cornell Campus Area,,,
+dining_5840567906,Dining Location,-76.4897043,42.4420095,Carriage House Cafe,Cornell Dining,Restaurant,Operated by: Cornell Dining. Cuisine layout: Mixed.,Cornell Campus Area,,,
+dining_6398578945,Dining Location,-76.4657543,42.4477148,Vet School Cafe,Cornell Dining,Cafe,Operated by: Cornell Dining. Cuisine layout: coffee_shop.,Cornell Campus Area,,,https://cornellvetdining.com/
+dining_8444746032,Dining Location,-76.5016509,42.443941,Sultana Cafe,Cornell Dining,Cafe,Operated by: Cornell Dining. Cuisine layout: Mixed.,Cornell Campus Area,,,
+dining_8796639067,Dining Location,-76.4992218,42.4398927,Alley Cat Cafe,Cornell Dining,Cafe,Operated by: Cornell Dining. Cuisine layout: Mixed. Typical hours: Tu-Sa 09:00-18:00; Su 10:00-17:00.,Cornell Campus Area,,,https://www.alleycatithaca.com/
+dining_9167217824,Dining Location,-76.4985973,42.4408044,Cafe Dewitt,Cornell Dining,Restaurant,Operated by: Cornell Dining. Cuisine layout: coffee_shop.,Cornell Campus Area,,,
+dining_9167280113,Dining Location,-76.4948412,42.4396717,The Greenhouse Cafe & Cocktail Lounge,Cornell Dining,Cafe,Operated by: Cornell Dining. Cuisine layout: Mixed. Typical hours: Mo-Th 15:00-23:00; Fr-Sa 15:00-00:00.,Cornell Campus Area,,,https://www.thegreenhouseithaca.com/
+dining_9167323000,Dining Location,-76.4955517,42.4406327,Ooy's Cafe and Deli,Cornell Dining,Restaurant,Operated by: Cornell Dining. Cuisine layout: Mixed.,Cornell Campus Area,,,
+dining_9176400983,Dining Location,-76.5000586,42.4387272,Press Bay Cafe,Cornell Dining,Cafe,"Operated by: Cornell Dining. Cuisine layout: Mixed. Typical hours: Mo-Fr 08:00-15:00, Sa-Su 09:00-16:00.",Cornell Campus Area,,,
+dining_12011180477,Dining Location,-76.4948361,42.4401969,The Strand Cafe,Cornell Dining,Cafe,Operated by: Cornell Dining. Cuisine layout: Mixed. Typical hours: Mo-Su 06:00-23:00; Sa-Su 23:00-01:00.,Cornell Campus Area,,,https://thestrandithaca.com/
+dining_13298062632,Dining Location,-76.4820262,42.4463543,Mac's Cafe,Cornell Dining,Cafe,Operated by: Cornell Dining. Cuisine layout: american.,Cornell Campus Area,,,https://statlerhotel.cornell.edu/food-drink/macs-cafe
+dining_13298062633,Dining Location,-76.4833592,42.4459525,Atrium Cafe,Cornell Dining,Cafe,Operated by: Cornell Dining. Cuisine layout: Mixed.,Cornell Campus Area,,,https://scl.cornell.edu/atrium-cafe
+dining_1151622577,Dining Location,-76.4793243,42.4555602,Morrison Dining,Cornell Dining,Fast_food,Operated by: Cornell Dining. Cuisine layout: Mixed.,Cornell Campus Area,,,

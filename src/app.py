@@ -2,8 +2,12 @@ import json
 import math
 import os
 import re
-from collections import Counter, defaultdict
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import preprocessing
 
+from collections import Counter, defaultdict
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
@@ -28,6 +32,15 @@ reddit_corpus_path = os.path.join(reddit_directory, "corpus.json")
 osm_directory = os.path.join(data_directory, "open_street_map")
 osm_csv_path = os.path.join(osm_directory, "osm_places.csv")
 
+recs_directory = os.path.join(data_directory, "cornell_recs")
+recs_csv_path = os.path.join(recs_directory, "recs.csv")
+
+trails_directory = os.path.join(data_directory, "ithaca_trails")
+trails_csv_path = os.path.join(trails_directory, "trails.csv")
+
+dining_directory = os.path.join(data_directory, "cornell_dining")
+dining_csv_path = os.path.join(dining_directory, "dining.csv")
+
 # -----------------------------
 # Flask app
 # -----------------------------
@@ -44,6 +57,7 @@ CORS(app)
 SEARCH_DOCS = []
 IDF = {}
 VOCAB = set()
+PREPROCESSING_STATS = {}
 
 
 # -----------------------------
@@ -73,7 +87,7 @@ def first_nonempty(record, *keys):
 
 
 def tokenize(text):
-    return re.findall(r"[a-z0-9]+", normalize_whitespace(text).lower())
+    return re.findall(r"[a-z0-9_]+", normalize_whitespace(text).lower())
 
 
 def load_json_if_exists(path):
@@ -312,45 +326,50 @@ def load_reddit_documents():
 
 
 # -----------------------------
-# OSM loading
+# CSV Datasets Loading
 # -----------------------------
-def load_osm_documents():
+def load_generic_csv_documents(csv_path, source_name):
     docs = []
-    if not os.path.exists(osm_csv_path):
+    if not os.path.exists(csv_path):
         return docs
     
     import csv
-    with open(osm_csv_path, "r", encoding="utf-8") as f:
+    with open(csv_path, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for idx, row in enumerate(reader):
             title = row.get("name", "").strip()
             if not title:
-                title = f"Location {row.get('id', idx)}"
+                title = f"{source_name.capitalize()} {row.get('id', idx)}"
             
             category = row.get("category", "").strip()
             subcategory = row.get("subcategory", "").strip()
-            address = row.get("address", "").strip()
+            address = row.get("address", "").strip() or row.get("location", "").strip()
+            db_desc = row.get("description", "").strip()
             
             description_parts = []
+            if db_desc: description_parts.append(db_desc)
             if category: description_parts.append(f"Category: {category}")
             if subcategory: description_parts.append(f"Type: {subcategory}")
             if address: description_parts.append(f"Address: {address}")
-            description = ", ".join(description_parts)
+            description = " | ".join(description_parts)
             
-            search_text = " ".join([title, category, subcategory, address])
+            search_text = " ".join([title, category, subcategory, address, db_desc])
+            
+            start_time = row.get("start_time", "").strip()
+            end_time = row.get("end_time", "").strip()
             
             docs.append({
-                "id": f"osm:{row.get('id', idx)}",
+                "id": f"{source_name}:{row.get('id', idx)}",
                 "title": title,
                 "description": description,
-                "organization": "OpenStreetMap",
-                "category": category or "location",
+                "organization": row.get("operator", source_name.capitalize()),
+                "category": category or source_name,
                 "location": address or "Ithaca Area",
-                "start_time": "",
-                "end_time": "",
+                "start_time": start_time,
+                "end_time": end_time,
                 "url": row.get("website", ""),
-                "source": "osm",
-                "doc_type": "location",
+                "source": source_name,
+                "doc_type": row.get("type", "location"),
                 "search_text": search_text,
                 "raw": row,
             })
@@ -401,20 +420,23 @@ def build_search_index():
     docs = []
     docs.extend(load_campusgroups_documents())
     docs.extend(load_reddit_documents())
-    docs.extend(load_osm_documents())
+    docs.extend(load_generic_csv_documents(osm_csv_path, "osm"))
+    docs.extend(load_generic_csv_documents(recs_csv_path, "recs"))
+    docs.extend(load_generic_csv_documents(trails_csv_path, "trails"))
+    docs.extend(load_generic_csv_documents(dining_csv_path, "dining"))
 
-    # de-dupe by source + title + time
-    deduped = []
-    seen = set()
-    for doc in docs:
-        key = (
-            doc["source"].strip().lower(),
-            doc["title"].strip().lower(),
-            doc["start_time"].strip().lower()
-        )
-        if key not in seen:
-            seen.add(key)
-            deduped.append(doc)
+    # Pass docs through standard preprocessing pipeline
+    processed = preprocessing.process_documents(docs)
+    deduped = processed["docs"]
+    
+    global PREPROCESSING_STATS
+    PREPROCESSING_STATS = processed
+    
+    print(f"Preprocessing Report:")
+    print(f" - Original docs: {processed['original_count']}")
+    print(f" - Empty Removed: {processed['empty_removed']}")
+    print(f" - Duplicates Removed: {processed['duplicates_removed']}")
+    print(f" - Clean Index Size: {processed['cleaned_count']}")
 
     df_counter = Counter()
     indexed_docs = []
@@ -447,10 +469,15 @@ def build_search_index():
     print(f" - CampusGroups: {sum(1 for d in SEARCH_DOCS if d['source'] == 'campusgroups')}")
     print(f" - Reddit: {sum(1 for d in SEARCH_DOCS if d['source'] == 'reddit')}")
     print(f" - OSM: {sum(1 for d in SEARCH_DOCS if d['source'] == 'osm')}")
+    print(f" - Recs: {sum(1 for d in SEARCH_DOCS if d['source'] == 'recs')}")
+    print(f" - Trails: {sum(1 for d in SEARCH_DOCS if d['source'] == 'trails')}")
+    print(f" - Dining: {sum(1 for d in SEARCH_DOCS if d['source'] == 'dining')}")
 
 
 def build_query_vector(query):
-    query_tokens = tokenize(query)
+    # Preprocess query text the same way as documents
+    cleaned_query = preprocessing.normalize_text(query, aggressive=True)
+    query_tokens = tokenize(cleaned_query)
     query_counts = Counter(term for term in query_tokens if term in VOCAB)
     query_tfidf = compute_tfidf_vector(query_counts, IDF)
     query_norm = vector_norm(query_tfidf)
@@ -472,21 +499,25 @@ def search_documents(query, top_k=10, source="all"):
     if query_norm == 0.0:
         return []
 
-    allowed_sources = {"all", "campusgroups", "reddit", "osm"}
-    if source not in allowed_sources:
-        source = "all"
+    source_mapping = {
+        "all": {"campusgroups", "osm", "recs", "trails", "dining"},
+        "events": {"campusgroups"},
+        "places": {"osm"},
+        "food": {"dining", "osm"},
+        "outdoors": {"trails", "osm"},
+        "fitness": {"recs"},
+    }
+    allowed_sources = source_mapping.get(source, source_mapping["all"])
 
-    results = []
+    structured_results = []
+    reddit_results = []
 
     for doc in SEARCH_DOCS:
-        if source != "all" and doc["source"] != source:
-            continue
-
         score = cosine_similarity(query_vec, query_norm, doc["_tfidf"], doc["_norm"])
         if score <= 0:
             continue
-
-        results.append({
+            
+        result_dict = {
             "id": doc["id"],
             "title": doc["title"],
             "description": doc["description"],
@@ -499,10 +530,38 @@ def search_documents(query, top_k=10, source="all"):
             "source": doc["source"],
             "doc_type": doc["doc_type"],
             "score": round(score, 6),
-        })
+            "reddit_snippet": None
+        }
 
-    results.sort(key=lambda x: x["score"], reverse=True)
-    return results[:top_k]
+        if doc["source"] == "reddit":
+            reddit_results.append(result_dict)
+        elif doc["source"] in allowed_sources:
+            structured_results.append(result_dict)
+
+    structured_results.sort(key=lambda x: x["score"], reverse=True)
+    reddit_results.sort(key=lambda x: x["score"], reverse=True)
+    
+    top_structured = structured_results[:top_k]
+    
+    for s_res in top_structured:
+        best_reddit = None
+        best_r_score = 0
+        s_tokens = set(tokenize(s_res["title"] + " " + s_res["category"]))
+        
+        for r_res in reddit_results[:15]:
+            r_tokens = set(tokenize(r_res["title"] + " " + r_res["description"]))
+            overlap = len(s_tokens.intersection(r_tokens))
+            if overlap > best_r_score:
+                best_r_score = overlap
+                best_reddit = r_res
+                
+        if best_reddit and best_r_score >= 1:
+            snippet = best_reddit["description"][:120] + "..." if len(best_reddit["description"]) > 120 else best_reddit["description"]
+            s_res["reddit_snippet"] = f"Community mention: \"{snippet}\""
+            s_res["score"] = round(s_res["score"] + 0.05, 6)
+            
+    top_structured.sort(key=lambda x: x["score"], reverse=True)
+    return top_structured
 
 
 # -----------------------------
@@ -543,10 +602,14 @@ def api_reindex():
     build_search_index()
     return jsonify({
         "message": "Search index rebuilt successfully",
+        "preprocessing_stats": PREPROCESSING_STATS,
         "indexed_documents": len(SEARCH_DOCS),
         "campusgroups_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "campusgroups"),
         "reddit_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "reddit"),
         "osm_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "osm"),
+        "recs_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "recs"),
+        "trails_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "trails"),
+        "dining_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "dining"),
     })
 
 
@@ -557,12 +620,18 @@ def api_search_health():
         "campusgroups_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "campusgroups"),
         "reddit_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "reddit"),
         "osm_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "osm"),
+        "recs_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "recs"),
+        "trails_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "trails"),
+        "dining_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "dining"),
         "vocab_size": len(VOCAB),
         "campusgroups_json_found": os.path.exists(campusgroups_json_path),
         "reddit_conversations_found": os.path.exists(reddit_conversations_path),
         "reddit_utterances_found": os.path.exists(reddit_utterances_path),
         "reddit_corpus_found": os.path.exists(reddit_corpus_path),
         "osm_csv_found": os.path.exists(osm_csv_path),
+        "recs_csv_found": os.path.exists(recs_csv_path),
+        "trails_csv_found": os.path.exists(trails_csv_path),
+        "dining_csv_found": os.path.exists(dining_csv_path),
     })
 
 

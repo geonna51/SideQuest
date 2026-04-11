@@ -15,6 +15,7 @@ type SearchResult = {
   source: string
   doc_type: string
   score: number
+  reddit_snippet?: string | null
 }
 
 function App(): JSX.Element {
@@ -87,9 +88,12 @@ function App(): JSX.Element {
             value={source}
             onChange={(e) => void handleSourceChange(e.target.value)}
           >
-            <option value="all">All sources</option>
-            <option value="campusgroups">CampusGroups</option>
-            <option value="reddit">Reddit</option>
+            <option value="all">All categories</option>
+            <option value="events">Events & Activities</option>
+            <option value="places">Interesting Places</option>
+            <option value="food">Food & Dining</option>
+            <option value="outdoors">Outdoors & Trails</option>
+            <option value="fitness">Fitness & Rec</option>
           </select>
         </div>
       </div>
@@ -108,6 +112,12 @@ function App(): JSX.Element {
 
             {result.description && (
               <p className="episode-desc">{result.description}</p>
+            )}
+
+            {result.reddit_snippet && (
+              <div style={{ padding: '10px', marginTop: '10px', marginBottom: '10px', backgroundColor: '#f0f8ff', borderLeft: '4px solid #007bff', fontStyle: 'italic', fontSize: '0.9em', color: '#1a365d' }}>
+                💡 {result.reddit_snippet}
+              </div>
             )}
 
             <p className="episode-rating">
