@@ -6,11 +6,13 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import preprocessing
+import logging
 
 from collections import Counter, defaultdict
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
+from infosci_spark_client import LLMClient
 
 load_dotenv()
 
@@ -50,6 +52,7 @@ app = Flask(
     static_url_path=""
 )
 CORS(app)
+logger = logging.getLogger(__name__)
 
 # -----------------------------
 # Search index globals
@@ -564,6 +567,94 @@ def search_documents(query, top_k=10, source="all"):
     return top_structured
 
 
+def build_result_context(results):
+    context_blocks = []
+
+    for index, result in enumerate(results, start=1):
+        lines = [
+            f"Result {index}",
+            f"Title: {result['title']}",
+            f"Source: {result['source']}",
+            f"Type: {result['doc_type']}",
+            f"Score: {result['score']}",
+        ]
+
+        if result["description"]:
+            lines.append(f"Description: {result['description']}")
+        if result["organization"]:
+            lines.append(f"Organization: {result['organization']}")
+        if result["category"]:
+            lines.append(f"Category: {result['category']}")
+        if result["location"]:
+            lines.append(f"Location: {result['location']}")
+        if result["start_time"]:
+            lines.append(f"Start Time: {result['start_time']}")
+        if result["end_time"]:
+            lines.append(f"End Time: {result['end_time']}")
+        if result["url"]:
+            lines.append(f"URL: {result['url']}")
+
+        context_blocks.append("\n".join(lines))
+
+    return "\n\n---\n\n".join(context_blocks)
+
+
+def synthesize_search_answer(query, results):
+    if not results:
+        return {
+            "answer": "I couldn't find relevant results for that query in the current dataset.",
+            "warning": None,
+        }
+
+    api_key = os.getenv("API_KEY")
+    if not api_key:
+        return {
+            "answer": None,
+            "warning": "LLM synthesis is unavailable because API_KEY is not set.",
+        }
+
+    client = LLMClient(api_key=api_key)
+    context_text = build_result_context(results[:8])
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a helpful assistant for SideQuest, an Ithaca activity search app. "
+                "Answer the user's query using only the retrieved search results provided to you. "
+                "Do not invent facts. If the results are incomplete or ambiguous, say so clearly. "
+                "Prefer concise recommendations and mention specific titles when useful."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"User query: {query}\n\n"
+                f"Retrieved results:\n{context_text}\n\n"
+                "Synthesize a helpful answer grounded in these results."
+            ),
+        },
+    ]
+
+    try:
+        response = client.chat(messages)
+        answer = (response.get("content") or "").strip()
+        if not answer:
+            return {
+                "answer": None,
+                "warning": "The LLM did not return a synthesized answer.",
+            }
+        return {
+            "answer": answer,
+            "warning": None,
+        }
+    except Exception as exc:
+        logger.exception("Failed to synthesize search answer")
+        return {
+            "answer": None,
+            "warning": f"LLM synthesis failed: {exc}",
+        }
+
+
 # -----------------------------
 # API routes
 # -----------------------------
@@ -589,11 +680,15 @@ def api_search():
 
     results = search_documents(query, top_k=top_k, source=source)
 
+    synthesis = synthesize_search_answer(query, results)
+
     return jsonify({
         "query": query,
         "source": source,
         "count": len(results),
-        "results": results
+        "results": results,
+        "answer": synthesis["answer"],
+        "answer_warning": synthesis["warning"],
     })
 
 

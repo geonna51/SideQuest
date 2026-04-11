@@ -23,6 +23,8 @@ function App(): JSX.Element {
   const [searchTerm, setSearchTerm] = useState<string>('')
   const [source, setSource] = useState<string>('all')
   const [results, setResults] = useState<SearchResult[]>([])
+  const [answer, setAnswer] = useState<string>('')
+  const [answerWarning, setAnswerWarning] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(false)
   const [error, setError] = useState<string>('')
 
@@ -31,6 +33,8 @@ function App(): JSX.Element {
 
     if (value.trim() === '') {
       setResults([])
+      setAnswer('')
+      setAnswerWarning('')
       setError('')
       return
     }
@@ -49,10 +53,14 @@ function App(): JSX.Element {
 
       const data = await response.json()
       setResults(data.results ?? [])
+      setAnswer(data.answer ?? '')
+      setAnswerWarning(data.answer_warning ?? '')
     } catch (err) {
       console.error(err)
       setError('Failed to load search results.')
       setResults([])
+      setAnswer('')
+      setAnswerWarning('')
     } finally {
       setLoading(false)
     }
@@ -105,6 +113,17 @@ function App(): JSX.Element {
       <div id="answer-box">
         {loading && <p className="status-message loading-pulse">Searching the area...</p>}
         {error && <p className="status-message error-message">{error}</p>}
+
+        {!loading && !error && answer && (
+          <div className="episode-item">
+            <h3 className="episode-title">Synthesized answer</h3>
+            <p className="episode-desc">{answer}</p>
+          </div>
+        )}
+
+        {!loading && !error && answerWarning && (
+          <p>{answerWarning}</p>
+        )}
 
         {!loading && !error && results.length === 0 && searchTerm.trim() !== '' && (
           <p className="status-message empty-state">We couldn't find any activities matching your quest.</p>
