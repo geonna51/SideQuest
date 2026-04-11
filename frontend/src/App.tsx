@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import './App.css'
 import SearchIcon from './assets/mag.png'
+import BearLogo from './assets/sidequest_bear_logo.png'
 
 type SearchResult = {
   id: string
@@ -68,7 +69,10 @@ function App(): JSX.Element {
   return (
     <div className="full-body-container">
       <div className="top-text">
-        <h1 className="sidequest-title">SideQuest</h1>
+        <div className="logo-container">
+          <img src={BearLogo} alt="Cornell Bear Quest Logo" style={{ height: '72px', width: 'auto', mixBlendMode: 'multiply' }} />
+          <h1 className="sidequest-title">Side<span>Quest</span></h1>
+        </div>
 
         <div
           className="input-box"
@@ -99,11 +103,11 @@ function App(): JSX.Element {
       </div>
 
       <div id="answer-box">
-        {loading && <p>Loading...</p>}
-        {error && <p>{error}</p>}
+        {loading && <p className="status-message loading-pulse">Searching the area...</p>}
+        {error && <p className="status-message error-message">{error}</p>}
 
         {!loading && !error && results.length === 0 && searchTerm.trim() !== '' && (
-          <p>No results found.</p>
+          <p className="status-message empty-state">We couldn't find any activities matching your quest.</p>
         )}
 
         {results.map((result) => (
@@ -115,50 +119,48 @@ function App(): JSX.Element {
             )}
 
             {result.reddit_snippet && (
-              <div style={{ padding: '10px', marginTop: '10px', marginBottom: '10px', backgroundColor: '#f0f8ff', borderLeft: '4px solid #007bff', fontStyle: 'italic', fontSize: '0.9em', color: '#1a365d' }}>
+              <div style={{ padding: '12px 16px', marginTop: '1rem', marginBottom: '1rem', backgroundColor: '#f9fafb', borderLeft: '3px solid #d1d5db', fontStyle: 'italic', fontSize: '0.95em', color: '#4b5563', borderRadius: '0 8px 8px 0' }}>
                 💡 {result.reddit_snippet}
               </div>
             )}
 
-            <p className="episode-rating">
-              Source: {result.source}
-            </p>
+            <div className="episode-meta-container">
+              {result.source && (
+                <span className="meta-chip source-chip">
+                  {result.source}
+                </span>
+              )}
+              {result.category && (
+                <span className="meta-chip">
+                  {result.category}
+                </span>
+              )}
+              {result.location && (
+                <span className="meta-chip">
+                  📍 {result.location}
+                </span>
+              )}
+              {result.start_time && (
+                <span className="meta-chip">
+                  🕒 {result.start_time}
+                </span>
+              )}
+              {result.organization && (
+                <span className="meta-chip">
+                  Host: {result.organization}
+                </span>
+              )}
+            </div>
 
-            {result.organization && (
-              <p className="episode-rating">
-                Organization: {result.organization}
-              </p>
-            )}
-
-            {result.category && (
-              <p className="episode-rating">
-                Category: {result.category}
-              </p>
-            )}
-
-            {result.location && (
-              <p className="episode-rating">
-                Location: {result.location}
-              </p>
-            )}
-
-            {result.start_time && (
-              <p className="episode-rating">
-                Start: {result.start_time}
-              </p>
-            )}
-
-            <p className="episode-rating">
-              Similarity Score: {result.score}
-            </p>
-
-            {result.url && result.source !== 'osm' && (
-              <p>
-                <a href={result.url} target="_blank" rel="noreferrer">
-                  Open link
+            <div className="episode-actions">
+              <span className="meta-chip score-chip">Match: {Math.round(result.score * 100)}%</span>
+              
+              {result.url && result.source !== 'osm' && (
+                <a href={result.url} target="_blank" rel="noreferrer" className="action-button">
+                  View Details
                 </a>
-              </p>
-            )}
+              )}
+            </div>
           </div>
         ))}
       </div>

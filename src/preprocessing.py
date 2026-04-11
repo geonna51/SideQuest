@@ -109,6 +109,9 @@ def clean_record(doc):
         
     tags = str(doc.get("category", "")).strip().lower()
     loc = str(doc.get("location", "")).strip()
+    if loc.lower().startswith("private location"):
+        loc = ""
+        
     org = str(doc.get("organization", "")).strip()
     
     search_parts = [
@@ -121,12 +124,17 @@ def clean_record(doc):
     
     search_text = " ".join(p for p in search_parts if p)
     
+    url = str(doc.get("url", "")).strip()
+    if doc.get("source") == "campusgroups" and url.startswith("/"):
+        url = "https://cornell.campusgroups.com" + url
+    
     doc["title"] = title
     doc["description"] = desc
     doc["category"] = tags
     doc["location"] = loc
     doc["organization"] = org
     doc["search_text"] = search_text
+    doc["url"] = url
     
     return doc
 
