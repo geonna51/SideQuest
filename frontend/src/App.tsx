@@ -3,6 +3,48 @@ import './App.css'
 import SearchIcon from './assets/mag.png'
 import BearLogo from './assets/sidequest_bear_logo.png'
 
+const TIME_OPTIONS = [
+  { value: 'any', label: 'Any time', queryTerms: '' },
+  { value: 'today', label: 'Today', queryTerms: 'today happening now current event open today' },
+  { value: 'week', label: 'This week', queryTerms: 'this week upcoming soon weekly event this week' },
+  { value: 'weekend', label: 'Weekend', queryTerms: 'weekend saturday sunday weekend activity' },
+  { value: 'late', label: 'Late night', queryTerms: 'late night evening after dark open late' },
+] as const
+
+const AREA_OPTIONS = [
+  { value: 'any', label: 'Anywhere', queryTerms: '' },
+  { value: 'campus', label: 'On campus', queryTerms: 'cornell campus collegetown central campus north campus west campus' },
+  { value: 'collegetown', label: 'Collegetown', queryTerms: 'collegetown near campus college avenue dryden road' },
+  { value: 'downtown', label: 'Downtown Ithaca', queryTerms: 'downtown ithaca commons city center' },
+  { value: 'nature', label: 'Nature spots', queryTerms: 'state park trail gorge waterfall nature ithaca outskirts' },
+] as const
+
+const INTENT_OPTIONS = [
+  { value: 'any', label: 'Any vibe', queryTerms: '' },
+  { value: 'study', label: 'Quiet study', queryTerms: 'quiet study focus laptop reading calm coffee' },
+  { value: 'social', label: 'Meet people', queryTerms: 'social group meet people community conversation club' },
+  { value: 'food', label: 'Cheap food', queryTerms: 'cheap food affordable quick bite casual' },
+  { value: 'active', label: 'Get active', queryTerms: 'active workout exercise hiking fitness movement' },
+  { value: 'relax', label: 'Relaxing', queryTerms: 'relax peaceful cozy low key chill' },
+] as const
+
+type SearchContextOption = {
+  value: string
+  label: string
+  queryTerms: string
+}
+
+type LatentDimension = {
+  dimension: number
+  direction: 'positive' | 'negative'
+  weight?: number
+  query_weight?: number
+  document_weight?: number
+  alignment?: number
+  positive_terms: string[]
+  negative_terms: string[]
+}
+
 type SearchResult = {
   id: string
   title: string
@@ -17,34 +59,82 @@ type SearchResult = {
   doc_type: string
   score: number
   reddit_snippet?: string | null
+  search_mode: 'svd' | 'tfidf'
+  matched_dimensions?: LatentDimension[]
 }
 
 function App(): JSX.Element {
   const [searchTerm, setSearchTerm] = useState<string>('')
   const [source, setSource] = useState<string>('all')
+  const [searchMode, setSearchMode] = useState<'svd' | 'tfidf'>('svd')
+  const [timeFilter, setTimeFilter] = useState<string>('any')
+  const [areaFilter, setAreaFilter] = useState<string>('any')
+  const [intentFilter, setIntentFilter] = useState<string>('any')
   const [results, setResults] = useState<SearchResult[]>([])
   const [answer, setAnswer] = useState<string>('')
   const [answerWarning, setAnswerWarning] = useState<string>('')
+  const [queryLatentProfile, setQueryLatentProfile] = useState<{ positive: LatentDimension[]; negative: LatentDimension[] }>({ positive: [], negative: [] })
+  const [effectiveMode, setEffectiveMode] = useState<'svd' | 'tfidf'>('svd')
+  const [retrievalContext, setRetrievalContext] = useState<string[]>([])
   const [loading, setLoading] = useState<boolean>(false)
   const [error, setError] = useState<string>('')
+  const hasSynthesisWarning = answerWarning.trim() !== ''
+  const hasSynthesisAnswer = answer.trim() !== ''
 
-  const handleSearch = async (value: string, selectedSource: string = source): Promise<void> => {
+  const buildAugmentedQuery = (
+    baseQuery: string,
+    selectedTime: string = timeFilter,
+    selectedArea: string = areaFilter,
+    selectedIntent: string = intentFilter
+  ): { composedQuery: string; labels: string[] } => {
+    const selections = [
+      TIME_OPTIONS.find((option) => option.value === selectedTime),
+      AREA_OPTIONS.find((option) => option.value === selectedArea),
+      INTENT_OPTIONS.find((option) => option.value === selectedIntent),
+    ].filter(Boolean) as SearchContextOption[]
+
+    const contextTerms = selections
+      .map((option) => option.queryTerms.trim())
+      .filter((terms) => terms.length > 0)
+
+    const labels = selections
+      .filter((option) => option.value !== 'any')
+      .map((option) => option.label)
+
+    return {
+      composedQuery: [baseQuery.trim(), ...contextTerms].filter(Boolean).join(' ').trim(),
+      labels,
+    }
+  }
+
+  const handleSearch = async (
+    value: string,
+    selectedSource: string = source,
+    selectedMode: 'svd' | 'tfidf' = searchMode,
+    selectedTime: string = timeFilter,
+    selectedArea: string = areaFilter,
+    selectedIntent: string = intentFilter
+  ): Promise<void> => {
     setSearchTerm(value)
 
     if (value.trim() === '') {
       setResults([])
       setAnswer('')
       setAnswerWarning('')
+      setQueryLatentProfile({ positive: [], negative: [] })
+      setRetrievalContext([])
       setError('')
       return
     }
 
+    const { composedQuery, labels } = buildAugmentedQuery(value, selectedTime, selectedArea, selectedIntent)
     setLoading(true)
     setError('')
+    setRetrievalContext(labels)
 
     try {
       const response = await fetch(
-        `/api/search?q=${encodeURIComponent(value)}&source=${encodeURIComponent(selectedSource)}`
+        `/api/search?q=${encodeURIComponent(composedQuery)}&source=${encodeURIComponent(selectedSource)}&mode=${encodeURIComponent(selectedMode)}`
       )
 
       if (!response.ok) {
@@ -55,12 +145,16 @@ function App(): JSX.Element {
       setResults(data.results ?? [])
       setAnswer(data.answer ?? '')
       setAnswerWarning(data.answer_warning ?? '')
+      setQueryLatentProfile(data.query_latent_profile ?? { positive: [], negative: [] })
+      setEffectiveMode(data.effective_mode ?? selectedMode)
     } catch (err) {
       console.error(err)
       setError('Failed to load search results.')
       setResults([])
       setAnswer('')
       setAnswerWarning('')
+      setQueryLatentProfile({ positive: [], negative: [] })
+      setRetrievalContext(labels)
     } finally {
       setLoading(false)
     }
@@ -70,7 +164,28 @@ function App(): JSX.Element {
     setSource(newSource)
 
     if (searchTerm.trim() !== '') {
-      await handleSearch(searchTerm, newSource)
+      await handleSearch(searchTerm, newSource, searchMode, timeFilter, areaFilter, intentFilter)
+    }
+  }
+
+  const handleModeChange = async (newMode: 'svd' | 'tfidf'): Promise<void> => {
+    setSearchMode(newMode)
+
+    if (searchTerm.trim() !== '') {
+      await handleSearch(searchTerm, source, newMode, timeFilter, areaFilter, intentFilter)
+    }
+  }
+
+  const handleContextChange = async (
+    nextTime: string = timeFilter,
+    nextArea: string = areaFilter,
+    nextIntent: string = intentFilter
+  ): Promise<void> => {
+    if (searchTerm.trim() !== '') {
+      await handleSearch(searchTerm, source, searchMode, nextTime, nextArea, nextIntent)
+    } else {
+      const { labels } = buildAugmentedQuery('', nextTime, nextArea, nextIntent)
+      setRetrievalContext(labels)
     }
   }
 
@@ -95,34 +210,186 @@ function App(): JSX.Element {
           />
         </div>
 
-        <div style={{ marginTop: '12px' }}>
-          <select
-            value={source}
-            onChange={(e) => void handleSourceChange(e.target.value)}
-          >
-            <option value="all">All categories</option>
-            <option value="events">Events & Activities</option>
-            <option value="places">Interesting Places</option>
-            <option value="food">Food & Dining</option>
-            <option value="outdoors">Outdoors & Trails</option>
-            <option value="fitness">Fitness & Rec</option>
-          </select>
-        </div>
+        <section className="search-controls-card" aria-label="Search filters">
+          <div className="filter-control">
+            <label htmlFor="source-filter" className="filter-label">Category</label>
+            <select
+              id="source-filter"
+              className="filter-select"
+              value={source}
+              onChange={(e) => void handleSourceChange(e.target.value)}
+            >
+              <option value="all">All categories</option>
+              <option value="events">Events & Activities</option>
+              <option value="places">Interesting Places</option>
+              <option value="food">Food & Dining</option>
+              <option value="outdoors">Outdoors & Trails</option>
+              <option value="fitness">Fitness & Rec</option>
+            </select>
+          </div>
+
+          <div className="filter-grid">
+            <div className="filter-control">
+              <label htmlFor="time-filter" className="filter-label">When</label>
+              <select
+                id="time-filter"
+                className="filter-select"
+                value={timeFilter}
+                onChange={(e) => {
+                  const next = e.target.value
+                  setTimeFilter(next)
+                  void handleContextChange(next, areaFilter, intentFilter)
+                }}
+              >
+                {TIME_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="filter-control">
+              <label htmlFor="area-filter" className="filter-label">Area</label>
+              <select
+                id="area-filter"
+                className="filter-select"
+                value={areaFilter}
+                onChange={(e) => {
+                  const next = e.target.value
+                  setAreaFilter(next)
+                  void handleContextChange(timeFilter, next, intentFilter)
+                }}
+              >
+                {AREA_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="filter-control">
+              <label htmlFor="intent-filter" className="filter-label">Intent</label>
+              <select
+                id="intent-filter"
+                className="filter-select"
+                value={intentFilter}
+                onChange={(e) => {
+                  const next = e.target.value
+                  setIntentFilter(next)
+                  void handleContextChange(timeFilter, areaFilter, next)
+                }}
+              >
+                {INTENT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <fieldset className="filter-mode-group">
+            <legend className="filter-label">Ranking mode</legend>
+            <div className="mode-toggle-row" role="radiogroup" aria-label="Search ranking mode">
+              <button
+                type="button"
+                className={`mode-toggle-button ${searchMode === 'svd' ? 'active' : ''}`}
+                aria-pressed={searchMode === 'svd'}
+                onClick={() => void handleModeChange('svd')}
+              >
+                <span className="mode-toggle-title">SVD Search</span>
+                <span className="mode-toggle-subtitle">Latent semantic ranking</span>
+              </button>
+              <button
+                type="button"
+                className={`mode-toggle-button ${searchMode === 'tfidf' ? 'active' : ''}`}
+                aria-pressed={searchMode === 'tfidf'}
+                onClick={() => void handleModeChange('tfidf')}
+              >
+                <span className="mode-toggle-title">TF-IDF Baseline</span>
+                <span className="mode-toggle-subtitle">Exact lexical matching</span>
+              </button>
+            </div>
+          </fieldset>
+        </section>
       </div>
 
       <div id="answer-box">
         {loading && <p className="status-message loading-pulse">Searching the area...</p>}
         {error && <p className="status-message error-message">{error}</p>}
 
-        {!loading && !error && answer && (
-          <div className="episode-item">
-            <h3 className="episode-title">Synthesized answer</h3>
-            <p className="episode-desc">{answer}</p>
-          </div>
+        {!loading && !error && searchTerm.trim() !== '' && (
+          <section className={`synthesis-card ${hasSynthesisWarning && !hasSynthesisAnswer ? 'synthesis-card-warning' : ''}`} aria-live="polite">
+            <div className="synthesis-header">
+              <div>
+                <p className="synthesis-eyebrow">LLM Synthesis</p>
+                <h2 className="synthesis-title">Quick recommendation summary</h2>
+              </div>
+              <span className={`synthesis-status-pill ${hasSynthesisAnswer ? 'ready' : 'offline'}`}>
+                {hasSynthesisAnswer ? 'Available' : 'Unavailable'}
+              </span>
+            </div>
+
+            {hasSynthesisAnswer && (
+              <p className="episode-desc synthesis-copy">{answer}</p>
+            )}
+
+            {!hasSynthesisAnswer && hasSynthesisWarning && (
+              <div className="synthesis-empty-state">
+                <p className="synthesis-empty-title">Search results are still available.</p>
+                <p className="synthesis-empty-copy">
+                  The app found matching activities, but the summary assistant is currently offline because the backend API key is not configured.
+                </p>
+                <p className="synthesis-empty-hint">{answerWarning}</p>
+              </div>
+            )}
+
+            {!hasSynthesisAnswer && !hasSynthesisWarning && (
+              <div className="synthesis-empty-state">
+                <p className="synthesis-empty-title">A summary will appear here after results load.</p>
+                <p className="synthesis-empty-copy">
+                  Use this panel to compare how the ranked results roll up into a short recommendation.
+                </p>
+              </div>
+            )}
+
+            {retrievalContext.length > 0 && (
+              <div className="context-chip-bar" aria-label="Active retrieval context">
+                {retrievalContext.map((label) => (
+                  <span key={label} className="context-chip">{label}</span>
+                ))}
+              </div>
+            )}
+          </section>
         )}
 
-        {!loading && !error && answerWarning && (
-          <p>{answerWarning}</p>
+        {!loading && !error && searchTerm.trim() !== '' && (
+          <div className="mode-summary-card">
+            <p className="mode-summary-label">
+              Search mode in use: <strong>{effectiveMode === 'svd' ? 'SVD latent retrieval' : 'TF-IDF lexical retrieval'}</strong>
+            </p>
+            {effectiveMode === 'svd' && (
+              <div className="dimension-groups">
+                <div>
+                  <p className="dimension-group-title">Top positive query dimensions</p>
+                  <div className="dimension-chip-row">
+                    {queryLatentProfile.positive.length > 0 ? queryLatentProfile.positive.map((dimension) => (
+                      <span key={`positive-${dimension.dimension}`} className="dimension-chip">
+                        D{dimension.dimension} (+): {dimension.positive_terms.slice(0, 3).join(', ')}
+                      </span>
+                    )) : <span className="dimension-chip muted-chip">No strong positive dimensions</span>}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="dimension-group-title">Top negative query dimensions</p>
+                  <div className="dimension-chip-row">
+                    {queryLatentProfile.negative.length > 0 ? queryLatentProfile.negative.map((dimension) => (
+                      <span key={`negative-${dimension.dimension}`} className="dimension-chip negative-chip">
+                        D{dimension.dimension} (-): {dimension.negative_terms.slice(0, 3).join(', ')}
+                      </span>
+                    )) : <span className="dimension-chip muted-chip">No strong negative dimensions</span>}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         )}
 
         {!loading && !error && results.length === 0 && searchTerm.trim() !== '' && (
@@ -140,6 +407,24 @@ function App(): JSX.Element {
             {result.reddit_snippet && (
               <div style={{ padding: '12px 16px', marginTop: '1rem', marginBottom: '1rem', backgroundColor: '#f9fafb', borderLeft: '3px solid #d1d5db', fontStyle: 'italic', fontSize: '0.95em', color: '#4b5563', borderRadius: '0 8px 8px 0' }}>
                 💡 {result.reddit_snippet}
+              </div>
+            )}
+
+            {result.search_mode === 'svd' && result.matched_dimensions && result.matched_dimensions.length > 0 && (
+              <div className="dimension-panel">
+                <p className="dimension-group-title">Latent dimensions matched</p>
+                <div className="dimension-chip-row">
+                  {result.matched_dimensions.map((dimension) => (
+                    <span
+                      key={`${result.id}-${dimension.dimension}-${dimension.direction}`}
+                      className={`dimension-chip ${dimension.direction === 'negative' ? 'negative-chip' : ''}`}
+                    >
+                      D{dimension.dimension} ({dimension.direction === 'positive' ? '+' : '-'}): {dimension.direction === 'positive'
+                        ? dimension.positive_terms.slice(0, 3).join(', ')
+                        : dimension.negative_terms.slice(0, 3).join(', ')}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
 

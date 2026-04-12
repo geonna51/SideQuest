@@ -7,12 +7,15 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import preprocessing
 import logging
+import numpy as np
 
 from collections import Counter, defaultdict
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from infosci_spark_client import LLMClient
+from scipy.sparse import csr_matrix
+from scipy.sparse.linalg import svds
 
 load_dotenv()
 
@@ -61,6 +64,19 @@ SEARCH_DOCS = []
 IDF = {}
 VOCAB = set()
 PREPROCESSING_STATS = {}
+VOCAB_TERMS = []
+TERM_INDEX = {}
+SVD_COMPONENTS = None
+SVD_SINGULAR_VALUES = None
+DOC_LATENT_MATRIX = None
+DOC_LATENT_NORMS = None
+DIMENSION_LABELS = []
+LATENT_DOC_INDEX = {}
+SVD_STATUS = {
+    "enabled": False,
+    "components": 0,
+    "message": "SVD index has not been built yet.",
+}
 
 
 # -----------------------------
@@ -417,8 +433,195 @@ def dot_product_sparse(vec_a, vec_b):
     return sum(value * vec_b.get(term, 0.0) for term, value in vec_a.items())
 
 
+def sparse_vector_to_matrix(weights):
+    if not TERM_INDEX or not weights:
+        return csr_matrix((1, len(VOCAB_TERMS)), dtype=float)
+
+    cols = []
+    values = []
+    for term, weight in weights.items():
+        idx = TERM_INDEX.get(term)
+        if idx is None:
+            continue
+        cols.append(idx)
+        values.append(weight)
+
+    if not cols:
+        return csr_matrix((1, len(VOCAB_TERMS)), dtype=float)
+
+    rows = np.zeros(len(cols), dtype=int)
+    return csr_matrix((values, (rows, cols)), shape=(1, len(VOCAB_TERMS)), dtype=float)
+
+
+def summarize_dimension(component_weights, vocab_terms, top_n=4):
+    indexed_weights = list(enumerate(component_weights))
+    indexed_weights.sort(key=lambda item: item[1], reverse=True)
+
+    positive_terms = [
+        vocab_terms[idx]
+        for idx, weight in indexed_weights
+        if weight > 0
+    ][:top_n]
+
+    negative_terms = [
+        vocab_terms[idx]
+        for idx, weight in sorted(indexed_weights, key=lambda item: item[1])
+        if weight < 0
+    ][:top_n]
+
+    return {
+        "positive_terms": positive_terms,
+        "negative_terms": negative_terms,
+    }
+
+
+def build_svd_index(doc_term_matrix, vocab_terms, requested_components=18):
+    global SVD_COMPONENTS, SVD_SINGULAR_VALUES, DOC_LATENT_MATRIX
+    global DOC_LATENT_NORMS, DIMENSION_LABELS, SVD_STATUS
+
+    num_docs, vocab_size = doc_term_matrix.shape
+    max_rank = min(num_docs - 1, vocab_size - 1)
+
+    if max_rank < 2:
+        SVD_COMPONENTS = None
+        SVD_SINGULAR_VALUES = None
+        DOC_LATENT_MATRIX = None
+        DOC_LATENT_NORMS = None
+        DIMENSION_LABELS = []
+        SVD_STATUS = {
+            "enabled": False,
+            "components": 0,
+            "message": "Not enough data to compute a meaningful SVD index.",
+        }
+        return
+
+    component_count = min(requested_components, max_rank)
+
+    try:
+        u, singular_values, vt = svds(doc_term_matrix, k=component_count)
+
+        order = np.argsort(singular_values)[::-1]
+        singular_values = singular_values[order]
+        vt = vt[order]
+        u = u[:, order]
+
+        doc_latent = u * singular_values
+        doc_norms = np.linalg.norm(doc_latent, axis=1)
+
+        dimension_labels = []
+        for dim_idx, component in enumerate(vt):
+            label = summarize_dimension(component, vocab_terms)
+            label["dimension"] = dim_idx
+            label["singular_value"] = round(float(singular_values[dim_idx]), 6)
+            dimension_labels.append(label)
+
+        SVD_COMPONENTS = vt
+        SVD_SINGULAR_VALUES = singular_values
+        DOC_LATENT_MATRIX = doc_latent
+        DOC_LATENT_NORMS = doc_norms
+        DIMENSION_LABELS = dimension_labels
+        SVD_STATUS = {
+            "enabled": True,
+            "components": int(component_count),
+            "message": "SVD index built successfully.",
+        }
+    except Exception as exc:
+        logger.exception("Failed to build SVD index")
+        SVD_COMPONENTS = None
+        SVD_SINGULAR_VALUES = None
+        DOC_LATENT_MATRIX = None
+        DOC_LATENT_NORMS = None
+        DIMENSION_LABELS = []
+        SVD_STATUS = {
+            "enabled": False,
+            "components": 0,
+            "message": f"SVD build failed: {exc}",
+        }
+
+
+def build_query_latent_vector(query_tfidf):
+    if SVD_COMPONENTS is None:
+        return None, 0.0
+
+    query_matrix = sparse_vector_to_matrix(query_tfidf)
+    latent = query_matrix.dot(SVD_COMPONENTS.T)
+    latent = np.asarray(latent).reshape(-1)
+    latent_norm = float(np.linalg.norm(latent))
+    return latent, latent_norm
+
+
+def cosine_similarity_dense(vec_a, norm_a, vec_b, norm_b):
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return float(np.dot(vec_a, vec_b) / (norm_a * norm_b))
+
+
+def explain_svd_alignment(query_latent, doc_latent, top_n=3):
+    alignments = []
+
+    for dim_idx, (query_weight, doc_weight) in enumerate(zip(query_latent, doc_latent)):
+        contribution = float(query_weight * doc_weight)
+        if contribution <= 0:
+            continue
+
+        label = DIMENSION_LABELS[dim_idx] if dim_idx < len(DIMENSION_LABELS) else {
+            "positive_terms": [],
+            "negative_terms": [],
+        }
+        direction = "positive" if query_weight > 0 else "negative"
+        alignments.append({
+            "dimension": dim_idx,
+            "direction": direction,
+            "query_weight": round(float(query_weight), 6),
+            "document_weight": round(float(doc_weight), 6),
+            "alignment": round(contribution, 6),
+            "positive_terms": label.get("positive_terms", []),
+            "negative_terms": label.get("negative_terms", []),
+        })
+
+    alignments.sort(key=lambda item: abs(item["alignment"]), reverse=True)
+    return alignments[:top_n]
+
+
+def summarize_query_latent_profile(query_latent, top_n=3):
+    if query_latent is None or not len(query_latent):
+        return {"positive": [], "negative": []}
+
+    indexed = list(enumerate(query_latent))
+    positive = sorted(
+        [item for item in indexed if item[1] > 0],
+        key=lambda item: item[1],
+        reverse=True
+    )[:top_n]
+    negative = sorted(
+        [item for item in indexed if item[1] < 0],
+        key=lambda item: item[1]
+    )[:top_n]
+
+    def to_payload(items, direction):
+        payload = []
+        for dim_idx, weight in items:
+            label = DIMENSION_LABELS[dim_idx] if dim_idx < len(DIMENSION_LABELS) else {
+                "positive_terms": [],
+                "negative_terms": [],
+            }
+            payload.append({
+                "dimension": dim_idx,
+                "direction": direction,
+                "weight": round(float(weight), 6),
+                "positive_terms": label.get("positive_terms", []),
+                "negative_terms": label.get("negative_terms", []),
+            })
+        return payload
+
+    return {
+        "positive": to_payload(positive, "positive"),
+        "negative": to_payload(negative, "negative"),
+    }
+
+
 def build_search_index():
-    global SEARCH_DOCS, IDF, VOCAB
+    global SEARCH_DOCS, IDF, VOCAB, VOCAB_TERMS, TERM_INDEX, LATENT_DOC_INDEX
 
     docs = []
     docs.extend(load_campusgroups_documents())
@@ -467,6 +670,34 @@ def build_search_index():
     SEARCH_DOCS = indexed_docs
     IDF = idf_map
     VOCAB = set(df_counter.keys())
+    VOCAB_TERMS = sorted(VOCAB)
+    TERM_INDEX = {term: idx for idx, term in enumerate(VOCAB_TERMS)}
+    LATENT_DOC_INDEX = {}
+
+    if indexed_docs and VOCAB_TERMS:
+        structured_doc_rows = []
+        rows = []
+        cols = []
+        values = []
+        for doc_idx, doc in enumerate(indexed_docs):
+            if doc["source"] == "reddit":
+                continue
+            latent_row_idx = len(structured_doc_rows)
+            structured_doc_rows.append(doc_idx)
+            LATENT_DOC_INDEX[doc_idx] = latent_row_idx
+            for term, weight in doc["_tfidf"].items():
+                rows.append(latent_row_idx)
+                cols.append(TERM_INDEX[term])
+                values.append(weight)
+
+        doc_term_matrix = csr_matrix(
+            (values, (rows, cols)),
+            shape=(len(structured_doc_rows), len(VOCAB_TERMS)),
+            dtype=float,
+        )
+        build_svd_index(doc_term_matrix, VOCAB_TERMS)
+    else:
+        build_svd_index(csr_matrix((0, 0), dtype=float), [], requested_components=0)
 
     print(f"Indexed {len(SEARCH_DOCS)} total docs")
     print(f" - CampusGroups: {sum(1 for d in SEARCH_DOCS if d['source'] == 'campusgroups')}")
@@ -475,6 +706,7 @@ def build_search_index():
     print(f" - Recs: {sum(1 for d in SEARCH_DOCS if d['source'] == 'recs')}")
     print(f" - Trails: {sum(1 for d in SEARCH_DOCS if d['source'] == 'trails')}")
     print(f" - Dining: {sum(1 for d in SEARCH_DOCS if d['source'] == 'dining')}")
+    print(f" - SVD Enabled: {SVD_STATUS['enabled']} ({SVD_STATUS['components']} dimensions)")
 
 
 def build_query_vector(query):
@@ -493,14 +725,26 @@ def cosine_similarity(query_vec, query_norm, doc_vec, doc_norm):
     return dot_product_sparse(query_vec, doc_vec) / (query_norm * doc_norm)
 
 
-def search_documents(query, top_k=10, source="all"):
+def search_documents(query, top_k=10, source="all", mode="svd"):
     query = query.strip()
     if not query or not SEARCH_DOCS:
-        return []
+        return [], {"positive": [], "negative": []}, "tfidf"
 
     query_vec, query_norm = build_query_vector(query)
     if query_norm == 0.0:
-        return []
+        return [], {"positive": [], "negative": []}, "tfidf"
+
+    use_svd = mode == "svd" and SVD_STATUS["enabled"]
+    query_latent = None
+    query_latent_norm = 0.0
+    query_profile = {"positive": [], "negative": []}
+
+    if use_svd:
+        query_latent, query_latent_norm = build_query_latent_vector(query_vec)
+        if query_latent is None or query_latent_norm == 0.0:
+            use_svd = False
+        else:
+            query_profile = summarize_query_latent_profile(query_latent)
 
     source_mapping = {
         "all": {"campusgroups", "osm", "recs", "trails", "dining"},
@@ -515,8 +759,23 @@ def search_documents(query, top_k=10, source="all"):
     structured_results = []
     reddit_results = []
 
-    for doc in SEARCH_DOCS:
-        score = cosine_similarity(query_vec, query_norm, doc["_tfidf"], doc["_norm"])
+    for doc_idx, doc in enumerate(SEARCH_DOCS):
+        lexical_score = cosine_similarity(query_vec, query_norm, doc["_tfidf"], doc["_norm"])
+
+        if use_svd and doc_idx in LATENT_DOC_INDEX:
+            latent_idx = LATENT_DOC_INDEX[doc_idx]
+            svd_score = cosine_similarity_dense(
+                query_latent,
+                query_latent_norm,
+                DOC_LATENT_MATRIX[latent_idx],
+                float(DOC_LATENT_NORMS[latent_idx]),
+            )
+            matched_dimensions = explain_svd_alignment(query_latent, DOC_LATENT_MATRIX[latent_idx])
+            score = (0.7 * svd_score) + (0.3 * lexical_score)
+        else:
+            score = lexical_score
+            matched_dimensions = []
+
         if score <= 0:
             continue
             
@@ -533,7 +792,9 @@ def search_documents(query, top_k=10, source="all"):
             "source": doc["source"],
             "doc_type": doc["doc_type"],
             "score": round(score, 6),
-            "reddit_snippet": None
+            "reddit_snippet": None,
+            "search_mode": "svd" if use_svd else "tfidf",
+            "matched_dimensions": matched_dimensions,
         }
 
         if doc["source"] == "reddit":
@@ -564,7 +825,7 @@ def search_documents(query, top_k=10, source="all"):
             s_res["score"] = round(s_res["score"] + 0.05, 6)
             
     top_structured.sort(key=lambda x: x["score"], reverse=True)
-    return top_structured
+    return top_structured, query_profile, ("svd" if use_svd else "tfidf")
 
 
 def build_result_context(results):
@@ -662,7 +923,11 @@ def synthesize_search_answer(query, results):
 def api_search():
     query = request.args.get("q", "").strip()
     source = request.args.get("source", "all").strip().lower()
+    mode = request.args.get("mode", "svd").strip().lower()
     top_k_raw = request.args.get("top_k", "10")
+
+    if mode not in {"svd", "tfidf"}:
+        mode = "svd"
 
     try:
         top_k = max(1, min(int(top_k_raw), 50))
@@ -673,20 +938,30 @@ def api_search():
         return jsonify({
             "query": "",
             "source": source,
+            "mode": mode,
             "count": 0,
             "results": [],
             "message": "Pass a query with ?q=your+query"
         }), 400
 
-    results = search_documents(query, top_k=top_k, source=source)
+    results, query_profile, effective_mode = search_documents(
+        query,
+        top_k=top_k,
+        source=source,
+        mode=mode,
+    )
 
     synthesis = synthesize_search_answer(query, results)
 
     return jsonify({
         "query": query,
         "source": source,
+        "requested_mode": mode,
+        "effective_mode": effective_mode,
         "count": len(results),
         "results": results,
+        "query_latent_profile": query_profile,
+        "svd_status": SVD_STATUS,
         "answer": synthesis["answer"],
         "answer_warning": synthesis["warning"],
     })
@@ -698,6 +973,8 @@ def api_reindex():
     return jsonify({
         "message": "Search index rebuilt successfully",
         "preprocessing_stats": PREPROCESSING_STATS,
+        "svd_status": SVD_STATUS,
+        "sample_dimensions": DIMENSION_LABELS[:5],
         "indexed_documents": len(SEARCH_DOCS),
         "campusgroups_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "campusgroups"),
         "reddit_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "reddit"),
@@ -712,6 +989,8 @@ def api_reindex():
 def api_search_health():
     return jsonify({
         "indexed_documents": len(SEARCH_DOCS),
+        "svd_status": SVD_STATUS,
+        "sample_dimensions": DIMENSION_LABELS[:5],
         "campusgroups_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "campusgroups"),
         "reddit_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "reddit"),
         "osm_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "osm"),

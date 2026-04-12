@@ -24,7 +24,8 @@ FILLER_WORDS = {
     "join", "come", "attend", "event", "everyone", "anyone", "students", 
     "student", "university", "campus", "club", "organization", "hosted", 
     "located", "click", "learn", "register", "information", "details", "tbd",
-    "more", "here", "available", "description", "null"
+    "more", "here", "available", "description", "null", "category", "type",
+    "amenity", "operator", "location"
 }
 
 PHRASES = {
@@ -51,6 +52,33 @@ def basic_lemmatize(word):
         return word[:-1]
     return word
 
+def is_noise_token(word):
+    if not word:
+        return True
+
+    if word.isdigit():
+        return True
+
+    digit_count = sum(ch.isdigit() for ch in word)
+    alpha_count = sum(ch.isalpha() for ch in word)
+
+    if digit_count > 0 and len(word) > 1:
+        return True
+
+    if len(word) >= 8 and digit_count >= 3:
+        return True
+
+    if len(word) >= 10 and digit_count >= alpha_count:
+        return True
+
+    if re.fullmatch(r"[0-9a-f]{8,}", word):
+        return True
+
+    if re.fullmatch(r"\d+(am|pm)", word):
+        return True
+
+    return False
+
 def strip_html_and_markdown(text):
     if not text:
         return ""
@@ -75,6 +103,8 @@ def normalize_text(text, aggressive=False):
         if w in STOPWORDS:
             continue
         if aggressive and w in FILLER_WORDS:
+            continue
+        if is_noise_token(w):
             continue
         
         lemmatized = basic_lemmatize(w)
