@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import preprocessing
 import logging
 import numpy as np
+from datetime import datetime, timezone
 
 from collections import Counter, defaultdict
 from dotenv import load_dotenv
@@ -94,6 +95,22 @@ def as_text(value):
 
 def normalize_whitespace(text):
     return re.sub(r"\s+", " ", as_text(text)).strip()
+
+
+def parse_event_date(start_time_str: str):
+    """Parse start_time string into a date-only datetime.
+    Handles format: 'Tuesday, 20 January 2026 At 8:00 AM, EST (GMT-5)'
+    Returns a datetime (midnight) or None if unparseable.
+    """
+    if not start_time_str:
+        return None
+    match = re.search(r'(\d{1,2})\s+(\w+)\s+(\d{4})', start_time_str)
+    if not match:
+        return None
+    try:
+        return datetime.strptime(match.group(), '%d %B %Y')
+    except ValueError:
+        return None
 
 
 def first_nonempty(record, *keys):
@@ -710,8 +727,9 @@ def build_search_index():
 
 
 def build_query_vector(query):
-    # Preprocess query text the same way as documents
-    cleaned_query = preprocessing.normalize_text(query, aggressive=True)
+    # Use non-aggressive preprocessing for queries so user intent words like
+    # "campus", "event", "club" are not stripped and can match document titles.
+    cleaned_query = preprocessing.normalize_text(query, aggressive=False)
     query_tokens = tokenize(cleaned_query)
     query_counts = Counter(term for term in query_tokens if term in VOCAB)
     query_tfidf = compute_tfidf_vector(query_counts, IDF)
@@ -725,7 +743,7 @@ def cosine_similarity(query_vec, query_norm, doc_vec, doc_norm):
     return dot_product_sparse(query_vec, doc_vec) / (query_norm * doc_norm)
 
 
-def search_documents(query, top_k=10, source="all", mode="svd"):
+def search_documents(query, top_k=10, source="all", mode="svd", future_only=True, date_from=None, date_to=None):
     query = query.strip()
     if not query or not SEARCH_DOCS:
         return [], {"positive": [], "negative": []}, "tfidf"
@@ -747,12 +765,12 @@ def search_documents(query, top_k=10, source="all", mode="svd"):
             query_profile = summarize_query_latent_profile(query_latent)
 
     source_mapping = {
-        "all": {"campusgroups", "osm", "recs", "trails", "dining"},
-        "events": {"campusgroups"},
-        "places": {"osm"},
-        "food": {"dining", "osm"},
+        "all":      {"campusgroups", "osm", "recs", "trails", "dining"},
+        "events":   {"campusgroups"},
+        "places":   {"osm"},
+        "food":     {"dining", "osm"},
         "outdoors": {"trails", "osm"},
-        "fitness": {"recs"},
+        "fitness":  {"recs"},
     }
     allowed_sources = source_mapping.get(source, source_mapping["all"])
 
@@ -804,7 +822,30 @@ def search_documents(query, top_k=10, source="all", mode="svd"):
 
     structured_results.sort(key=lambda x: x["score"], reverse=True)
     reddit_results.sort(key=lambda x: x["score"], reverse=True)
-    
+
+    if future_only:
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        def keep_result(r):
+            if r["source"] != "campusgroups":
+                return True
+            event_date = parse_event_date(r["start_time"])
+            return event_date is None or event_date >= today
+        structured_results = [r for r in structured_results if keep_result(r)]
+
+    if date_from or date_to:
+        def in_date_range(r):
+            if r["source"] != "campusgroups":
+                return True
+            event_date = parse_event_date(r["start_time"])
+            if event_date is None:
+                return True
+            if date_from and event_date < date_from:
+                return False
+            if date_to and event_date > date_to:
+                return False
+            return True
+        structured_results = [r for r in structured_results if in_date_range(r)]
+
     top_structured = structured_results[:top_k]
     
     for s_res in top_structured:
@@ -925,6 +966,25 @@ def api_search():
     source = request.args.get("source", "all").strip().lower()
     mode = request.args.get("mode", "svd").strip().lower()
     top_k_raw = request.args.get("top_k", "10")
+    future_only = request.args.get("future_only", "true").strip().lower() != "false"
+
+    date_from = None
+    date_to = None
+    date_warnings = []
+    raw_from = request.args.get("date_from", "").strip()
+    raw_to = request.args.get("date_to", "").strip()
+    if raw_from:
+        try:
+            date_from = datetime.strptime(raw_from, "%Y-%m-%d")
+        except ValueError:
+            logger.warning("Invalid date_from param: %s", raw_from)
+            date_warnings.append(f"Ignored invalid date_from value: '{raw_from}'. Expected YYYY-MM-DD.")
+    if raw_to:
+        try:
+            date_to = datetime.strptime(raw_to, "%Y-%m-%d")
+        except ValueError:
+            logger.warning("Invalid date_to param: %s", raw_to)
+            date_warnings.append(f"Ignored invalid date_to value: '{raw_to}'. Expected YYYY-MM-DD.")
 
     if mode not in {"svd", "tfidf"}:
         mode = "svd"
@@ -949,6 +1009,9 @@ def api_search():
         top_k=top_k,
         source=source,
         mode=mode,
+        future_only=future_only,
+        date_from=date_from,
+        date_to=date_to,
     )
 
     synthesis = synthesize_search_answer(query, results)
@@ -964,6 +1027,7 @@ def api_search():
         "svd_status": SVD_STATUS,
         "answer": synthesis["answer"],
         "answer_warning": synthesis["warning"],
+        "warnings": date_warnings if date_warnings else None,
     })
 
 
@@ -998,6 +1062,12 @@ def api_search_health():
         "trails_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "trails"),
         "dining_documents": sum(1 for d in SEARCH_DOCS if d["source"] == "dining"),
         "vocab_size": len(VOCAB),
+        "preprocessing": {
+            "original_count": PREPROCESSING_STATS.get("original_count"),
+            "empty_removed": PREPROCESSING_STATS.get("empty_removed"),
+            "duplicates_removed": PREPROCESSING_STATS.get("duplicates_removed"),
+            "cleaned_count": PREPROCESSING_STATS.get("cleaned_count"),
+        },
         "campusgroups_json_found": os.path.exists(campusgroups_json_path),
         "reddit_conversations_found": os.path.exists(reddit_conversations_path),
         "reddit_utterances_found": os.path.exists(reddit_utterances_path),

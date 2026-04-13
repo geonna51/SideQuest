@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import './App.css'
 import SearchIcon from './assets/mag.png'
 import BearLogo from './assets/sidequest_bear_logo.png'
@@ -70,7 +70,11 @@ function App(): JSX.Element {
   const [timeFilter, setTimeFilter] = useState<string>('any')
   const [areaFilter, setAreaFilter] = useState<string>('any')
   const [intentFilter, setIntentFilter] = useState<string>('any')
+  const [futureOnly, setFutureOnly] = useState<boolean>(true)
+  const [dateFrom, setDateFrom] = useState<string>('')
+  const [dateTo, setDateTo] = useState<string>('')
   const [results, setResults] = useState<SearchResult[]>([])
+  const [visibleCount, setVisibleCount] = useState<number>(10)
   const [answer, setAnswer] = useState<string>('')
   const [answerWarning, setAnswerWarning] = useState<string>('')
   const [queryLatentProfile, setQueryLatentProfile] = useState<{ positive: LatentDimension[]; negative: LatentDimension[] }>({ positive: [], negative: [] })
@@ -78,8 +82,73 @@ function App(): JSX.Element {
   const [retrievalContext, setRetrievalContext] = useState<string[]>([])
   const [loading, setLoading] = useState<boolean>(false)
   const [error, setError] = useState<string>('')
-  const hasSynthesisWarning = answerWarning.trim() !== ''
+  const [sortBy, setSortBy] = useState<'score' | 'date_asc' | 'date_desc'>('score')
   const hasSynthesisAnswer = answer.trim() !== ''
+  const hasSynthesisWarning = answerWarning.trim() !== ''
+
+  // Mirrors backend parse_event_date: extracts "20 January 2026" from freeform strings
+  const parseStartTime = (str: string): number => {
+    if (!str) return NaN
+    const iso = Date.parse(str)
+    if (!isNaN(iso)) return iso
+    const match = str.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/)
+    if (match) return Date.parse(`${match[1]} ${match[2]} ${match[3]}`)
+    return NaN
+  }
+
+  const sortedResults = [...results].sort((a, b) => {
+    if (sortBy === 'score') return 0
+    const aTime = parseStartTime(a.start_time)
+    const bTime = parseStartTime(b.start_time)
+    const aValid = !isNaN(aTime)
+    const bValid = !isNaN(bTime)
+    if (!aValid && !bValid) return 0
+    if (!aValid) return 1  // undated results go last
+    if (!bValid) return -1
+    return sortBy === 'date_asc' ? aTime - bTime : bTime - aTime
+  })
+
+  // Read state from URL on first mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const q = params.get('q') ?? ''
+    const src = params.get('source') ?? 'all'
+    const mode = (params.get('mode') ?? 'svd') as 'svd' | 'tfidf'
+    const time = params.get('time') ?? 'any'
+    const area = params.get('area') ?? 'any'
+    const intent = params.get('intent') ?? 'any'
+    const future = params.get('future_only') !== 'false'
+    const from = params.get('date_from') ?? ''
+    const to = params.get('date_to') ?? ''
+
+    setSource(src)
+    setSearchMode(mode)
+    setTimeFilter(time)
+    setAreaFilter(area)
+    setIntentFilter(intent)
+    setFutureOnly(future)
+    setDateFrom(from)
+    setDateTo(to)
+
+    if (q) void handleSearch(q, src, mode, time, area, intent, future, from, to)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Sync URL whenever search state changes
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (searchTerm) params.set('q', searchTerm)
+    if (source !== 'all') params.set('source', source)
+    if (searchMode !== 'svd') params.set('mode', searchMode)
+    if (timeFilter !== 'any') params.set('time', timeFilter)
+    if (areaFilter !== 'any') params.set('area', areaFilter)
+    if (intentFilter !== 'any') params.set('intent', intentFilter)
+    if (!futureOnly) params.set('future_only', 'false')
+    if (dateFrom) params.set('date_from', dateFrom)
+    if (dateTo) params.set('date_to', dateTo)
+    const qs = params.toString()
+    window.history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname)
+  }, [searchTerm, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, dateFrom, dateTo])
 
   const buildAugmentedQuery = (
     baseQuery: string,
@@ -113,12 +182,16 @@ function App(): JSX.Element {
     selectedMode: 'svd' | 'tfidf' = searchMode,
     selectedTime: string = timeFilter,
     selectedArea: string = areaFilter,
-    selectedIntent: string = intentFilter
+    selectedIntent: string = intentFilter,
+    selectedFutureOnly: boolean = futureOnly,
+    selectedDateFrom: string = dateFrom,
+    selectedDateTo: string = dateTo
   ): Promise<void> => {
     setSearchTerm(value)
 
     if (value.trim() === '') {
       setResults([])
+      setVisibleCount(10)
       setAnswer('')
       setAnswerWarning('')
       setQueryLatentProfile({ positive: [], negative: [] })
@@ -129,13 +202,15 @@ function App(): JSX.Element {
 
     const { composedQuery, labels } = buildAugmentedQuery(value, selectedTime, selectedArea, selectedIntent)
     setLoading(true)
+    setVisibleCount(10)
     setError('')
     setRetrievalContext(labels)
 
     try {
-      const response = await fetch(
-        `/api/search?q=${encodeURIComponent(composedQuery)}&source=${encodeURIComponent(selectedSource)}&mode=${encodeURIComponent(selectedMode)}`
-      )
+      let apiUrl = `/api/search?q=${encodeURIComponent(composedQuery)}&source=${encodeURIComponent(selectedSource)}&mode=${encodeURIComponent(selectedMode)}&future_only=${selectedFutureOnly}&top_k=30`
+      if (selectedDateFrom) apiUrl += `&date_from=${encodeURIComponent(selectedDateFrom)}`
+      if (selectedDateTo) apiUrl += `&date_to=${encodeURIComponent(selectedDateTo)}`
+      const response = await fetch(apiUrl)
 
       if (!response.ok) {
         throw new Error(`Search failed with status ${response.status}`)
@@ -284,6 +359,73 @@ function App(): JSX.Element {
             </div>
           </div>
 
+          <div className="filter-toggle-row">
+            <label className="filter-toggle-label">
+              <input
+                type="checkbox"
+                checked={futureOnly}
+                onChange={(e) => {
+                  const next = e.target.checked
+                  setFutureOnly(next)
+                  if (searchTerm.trim() !== '') {
+                    void handleSearch(searchTerm, source, searchMode, timeFilter, areaFilter, intentFilter, next)
+                  }
+                }}
+              />
+              Upcoming events only
+            </label>
+          </div>
+
+          <div className="filter-date-row">
+            <div className="filter-control">
+              <label htmlFor="date-from" className="filter-label">From</label>
+              <input
+                id="date-from"
+                type="date"
+                className="filter-select"
+                value={dateFrom}
+                onChange={(e) => {
+                  const next = e.target.value
+                  setDateFrom(next)
+                  if (searchTerm.trim() !== '') {
+                    void handleSearch(searchTerm, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, next, dateTo)
+                  }
+                }}
+              />
+            </div>
+            <div className="filter-control">
+              <label htmlFor="date-to" className="filter-label">To</label>
+              <input
+                id="date-to"
+                type="date"
+                className="filter-select"
+                value={dateTo}
+                onChange={(e) => {
+                  const next = e.target.value
+                  setDateTo(next)
+                  if (searchTerm.trim() !== '') {
+                    void handleSearch(searchTerm, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, dateFrom, next)
+                  }
+                }}
+              />
+            </div>
+            {(dateFrom || dateTo) && (
+              <button
+                type="button"
+                className="date-clear-button"
+                onClick={() => {
+                  setDateFrom('')
+                  setDateTo('')
+                  if (searchTerm.trim() !== '') {
+                    void handleSearch(searchTerm, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, '', '')
+                  }
+                }}
+              >
+                Clear dates
+              </button>
+            )}
+          </div>
+
           <fieldset className="filter-mode-group">
             <legend className="filter-label">Ranking mode</legend>
             <div className="mode-toggle-row" role="radiogroup" aria-label="Search ranking mode">
@@ -311,7 +453,12 @@ function App(): JSX.Element {
       </div>
 
       <div id="answer-box">
-        {loading && <p className="status-message loading-pulse">Searching the area...</p>}
+        {loading && (
+          <div className="loading-state">
+            <div className="spinner" aria-hidden="true" />
+            <p className="status-message">Searching the area...</p>
+          </div>
+        )}
         {error && <p className="status-message error-message">{error}</p>}
 
         {!loading && !error && searchTerm.trim() !== '' && (
@@ -365,6 +512,9 @@ function App(): JSX.Element {
               Search mode in use: <strong>{effectiveMode === 'svd' ? 'SVD latent retrieval' : 'TF-IDF lexical retrieval'}</strong>
             </p>
             {effectiveMode === 'svd' && (
+              <p className="mode-summary-note">Community snippets from Reddit are matched separately by keyword overlap and shown alongside results.</p>
+            )}
+            {effectiveMode === 'svd' && (
               <div className="dimension-groups">
                 <div>
                   <p className="dimension-group-title">Top positive query dimensions</p>
@@ -396,7 +546,23 @@ function App(): JSX.Element {
           <p className="status-message empty-state">We couldn't find any activities matching your quest.</p>
         )}
 
-        {results.map((result) => (
+        {results.length > 0 && (
+          <div className="sort-row">
+            <label htmlFor="sort-select" className="filter-label">Sort by</label>
+            <select
+              id="sort-select"
+              className="sort-select"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as 'score' | 'date_asc' | 'date_desc')}
+            >
+              <option value="score">Best match</option>
+              <option value="date_asc">Date: soonest first</option>
+              <option value="date_desc">Date: latest first</option>
+            </select>
+          </div>
+        )}
+
+        {sortedResults.slice(0, visibleCount).map((result) => (
           <div key={result.id} className="episode-item">
             <h3 className="episode-title">{result.title}</h3>
 
@@ -467,6 +633,18 @@ function App(): JSX.Element {
             </div>
           </div>
         ))}
+
+        {!loading && visibleCount < sortedResults.length && (
+          <div className="show-more-row">
+            <button
+              type="button"
+              className="show-more-button"
+              onClick={() => setVisibleCount((c) => c + 10)}
+            >
+              Show more ({sortedResults.length - visibleCount} remaining)
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )
