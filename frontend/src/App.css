@@ -452,12 +452,57 @@
   border: 1px solid #f3f4f6;
   box-shadow: 0 4px 20px -5px rgba(0, 0, 0, 0.03);
   transition: all 0.3s ease;
+  cursor: pointer;
 }
 
 .episode-item:hover {
   transform: translateY(-2px);
   box-shadow: 0 12px 30px -5px rgba(0, 0, 0, 0.06);
   border-color: #e5e7eb;
+}
+
+.episode-item:focus-visible {
+  outline: 2px solid #B31B1B;
+  outline-offset: 2px;
+}
+
+.episode-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 0.5rem;
+}
+
+.episode-title-row .episode-title {
+  margin: 0;
+}
+
+.episode-title-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.rating-chip {
+  background: #fefce8;
+  border-color: #fde047;
+  color: #854d0e;
+  font-weight: 700;
+}
+
+.rating-count {
+  font-weight: 400;
+  opacity: 0.75;
+}
+
+.price-chip {
+  background: #f0fdf4;
+  border-color: #86efac;
+  color: #166534;
+  font-weight: 700;
+  letter-spacing: 0.5px;
 }
 
 .mode-summary-card {
@@ -802,4 +847,213 @@
   .input-box { width: 90%; }
   #answer-box { padding: 0 1rem; }
   #messages { padding: 0 8px 8px; }
+}
+
+/* ── Detail modal ──────────────────────────────────────────────────────────── */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.modal-panel {
+  background: #ffffff;
+  border-radius: 20px;
+  width: min(640px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  position: relative;
+  box-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.35);
+}
+
+.modal-close {
+  position: sticky;
+  top: 12px;
+  float: right;
+  margin: 12px 12px 0 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #64748b;
+  font-size: 0.85rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  transition: background 0.15s, color 0.15s;
+}
+
+.modal-close:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.modal-photo {
+  width: 100%;
+  height: 220px;
+  object-fit: cover;
+  border-radius: 20px 20px 0 0;
+  display: block;
+}
+
+.modal-body {
+  padding: 1.5rem 1.75rem 2rem;
+}
+
+.modal-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modal-title {
+  font-family: 'Kanit', sans-serif;
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.modal-header-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding-top: 4px;
+}
+
+.modal-meta {
+  margin: 0.4rem 0 0 0;
+  color: #64748b;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 0.9rem;
+}
+
+.modal-action-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 1.25rem;
+}
+
+.action-button-outline {
+  background: transparent;
+  color: #0f172a;
+  border: 1.5px solid #cbd5e1;
+  box-shadow: none;
+}
+
+.action-button-outline:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+  box-shadow: none;
+  transform: translateY(-1px);
+}
+
+.modal-phone {
+  margin: 1rem 0 0 0;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 0.92rem;
+  color: #334155;
+}
+
+.modal-description {
+  margin: 1rem 0 0 0;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 0.95rem;
+  color: #475569;
+  line-height: 1.6;
+}
+
+.modal-section {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #f1f5f9;
+}
+
+.modal-section-title {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin: 0 0 0.75rem 0;
+}
+
+.modal-hours-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.modal-hours-list li {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 0.88rem;
+  color: #334155;
+}
+
+.modal-reviews {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.modal-review {
+  padding: 1rem;
+  background: #f8fafc;
+  border-radius: 12px;
+  border: 1px solid #f1f5f9;
+}
+
+.modal-review-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.modal-review-author {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.modal-review-stars {
+  font-size: 0.8rem;
+  color: #f59e0b;
+  letter-spacing: 1px;
+}
+
+.modal-review-time {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 0.78rem;
+  color: #94a3b8;
+  margin-left: auto;
+}
+
+.modal-review-text {
+  margin: 0;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 0.88rem;
+  color: #475569;
+  line-height: 1.55;
 }

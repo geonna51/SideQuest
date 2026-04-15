@@ -45,6 +45,22 @@ type LatentDimension = {
   negative_terms: string[]
 }
 
+type PlacesData = {
+  website?: string | null
+  phone?: string | null
+  hours?: string[] | null
+  rating?: number | null
+  rating_count?: number | null
+  price_level?: string | null
+  photo_url?: string | null
+  reviews?: Array<{
+    author: string
+    rating: number | null
+    text: string
+    relative_time: string
+  }> | null
+}
+
 type SearchResult = {
   id: string
   title: string
@@ -58,6 +74,9 @@ type SearchResult = {
   source: string
   doc_type: string
   score: number
+  lat?: number | null
+  lon?: number | null
+  places_data?: PlacesData | null
   reddit_snippet?: string | null
   search_mode: 'svd' | 'tfidf'
   matched_dimensions?: LatentDimension[]
@@ -83,8 +102,15 @@ function App(): JSX.Element {
   const [loading, setLoading] = useState<boolean>(false)
   const [error, setError] = useState<string>('')
   const [sortBy, setSortBy] = useState<'score' | 'date_asc' | 'date_desc'>('score')
+  const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null)
   const hasSynthesisAnswer = answer.trim() !== ''
   const hasSynthesisWarning = answerWarning.trim() !== ''
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSelectedResult(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   // Mirrors backend parse_event_date: extracts "20 January 2026" from freeform strings
   const parseStartTime = (str: string): number => {
@@ -563,8 +589,30 @@ function App(): JSX.Element {
         )}
 
         {sortedResults.slice(0, visibleCount).map((result) => (
-          <div key={result.id} className="episode-item">
-            <h3 className="episode-title">{result.title}</h3>
+          <div
+            key={result.id}
+            className="episode-item"
+            role="button"
+            tabIndex={0}
+            onClick={() => setSelectedResult(result)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedResult(result) }}
+          >
+            <div className="episode-title-row">
+              <h3 className="episode-title">{result.title}</h3>
+              <div className="episode-title-chips">
+                {result.places_data?.price_level && (
+                  <span className="meta-chip price-chip">{result.places_data.price_level}</span>
+                )}
+                {result.places_data?.rating != null && (
+                  <span className="meta-chip rating-chip">
+                    ★ {result.places_data.rating.toFixed(1)}
+                    {result.places_data.rating_count != null && (
+                      <span className="rating-count"> ({result.places_data.rating_count.toLocaleString()})</span>
+                    )}
+                  </span>
+                )}
+              </div>
+            </div>
 
             {result.description && (
               <p className="episode-desc">{result.description}</p>
@@ -596,40 +644,25 @@ function App(): JSX.Element {
 
             <div className="episode-meta-container">
               {result.source && (
-                <span className="meta-chip source-chip">
-                  {result.source}
-                </span>
+                <span className="meta-chip source-chip">{result.source}</span>
               )}
               {result.category && (
-                <span className="meta-chip">
-                  {result.category}
-                </span>
+                <span className="meta-chip">{result.category}</span>
               )}
               {result.location && (
-                <span className="meta-chip">
-                  📍 {result.location}
-                </span>
+                <span className="meta-chip">📍 {result.location}</span>
               )}
               {result.start_time && (
-                <span className="meta-chip">
-                  🕒 {result.start_time}
-                </span>
+                <span className="meta-chip">🕒 {result.start_time}</span>
               )}
               {result.organization && (
-                <span className="meta-chip">
-                  Host: {result.organization}
-                </span>
+                <span className="meta-chip">Host: {result.organization}</span>
               )}
             </div>
 
             <div className="episode-actions">
               <span className="meta-chip score-chip">Match: {Math.round(result.score * 100)}%</span>
-              
-              {result.url && result.source !== 'osm' && (
-                <a href={result.url} target="_blank" rel="noreferrer" className="action-button">
-                  View Details
-                </a>
-              )}
+              <span className="action-button">View Details</span>
             </div>
           </div>
         ))}
@@ -646,6 +679,107 @@ function App(): JSX.Element {
           </div>
         )}
       </div>
+
+      {selectedResult && (
+        <div className="modal-backdrop" onClick={() => setSelectedResult(null)}>
+          <div className="modal-panel" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <button className="modal-close" onClick={() => setSelectedResult(null)} aria-label="Close">✕</button>
+
+            {selectedResult.places_data?.photo_url && (
+              <img
+                className="modal-photo"
+                src={selectedResult.places_data.photo_url}
+                alt={selectedResult.title}
+              />
+            )}
+
+            <div className="modal-body">
+              <div className="modal-header-row">
+                <h2 className="modal-title">{selectedResult.title}</h2>
+                <div className="modal-header-chips">
+                  {selectedResult.places_data?.price_level && (
+                    <span className="meta-chip price-chip">{selectedResult.places_data.price_level}</span>
+                  )}
+                  {selectedResult.places_data?.rating != null && (
+                    <span className="meta-chip rating-chip">
+                      ★ {selectedResult.places_data.rating.toFixed(1)}
+                      {selectedResult.places_data.rating_count != null && (
+                        <span className="rating-count"> ({selectedResult.places_data.rating_count.toLocaleString()})</span>
+                      )}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <p className="modal-meta">
+                {[selectedResult.category, selectedResult.location].filter(Boolean).join(' · ')}
+              </p>
+
+              <div className="modal-action-row">
+                {selectedResult.places_data?.website && (
+                  <a href={selectedResult.places_data.website} target="_blank" rel="noreferrer" className="action-button">
+                    Visit Website
+                  </a>
+                )}
+                {!selectedResult.places_data?.website && selectedResult.url && (
+                  <a href={selectedResult.url} target="_blank" rel="noreferrer" className="action-button">
+                    View Details
+                  </a>
+                )}
+                {selectedResult.lat != null && selectedResult.lon != null && (
+                  <a
+                    href={`https://www.google.com/maps/search/?api=1&query=${selectedResult.lat},${selectedResult.lon}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="action-button action-button-outline"
+                  >
+                    Open in Maps
+                  </a>
+                )}
+              </div>
+
+              {selectedResult.places_data?.phone && (
+                <p className="modal-phone">📞 {selectedResult.places_data.phone}</p>
+              )}
+
+              {selectedResult.description && (
+                <p className="modal-description">{selectedResult.description}</p>
+              )}
+
+              {selectedResult.places_data?.hours && (
+                <div className="modal-section">
+                  <h3 className="modal-section-title">Hours</h3>
+                  <ul className="modal-hours-list">
+                    {selectedResult.places_data.hours.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {selectedResult.places_data?.reviews && selectedResult.places_data.reviews.length > 0 && (
+                <div className="modal-section">
+                  <h3 className="modal-section-title">Reviews</h3>
+                  <div className="modal-reviews">
+                    {selectedResult.places_data.reviews.map((review, i) => (
+                      <div key={i} className="modal-review">
+                        <div className="modal-review-header">
+                          <span className="modal-review-author">{review.author}</span>
+                          {review.rating != null && (
+                            <span className="modal-review-stars">{'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}</span>
+                          )}
+                          <span className="modal-review-time">{review.relative_time}</span>
+                        </div>
+                        {review.text && <p className="modal-review-text">{review.text}</p>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

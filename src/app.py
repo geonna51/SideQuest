@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from infosci_spark_client import LLMClient
+from places_enrichment import get_places_data
 from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import svds
 
@@ -797,6 +798,14 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
         if score <= 0:
             continue
             
+        # Pull lat/lon from raw CSV row (OSM, dining, recs, trails sources)
+        raw = doc.get("raw", {})
+        try:
+            doc_lat = float(raw.get("lat") or raw.get("latitude") or 0) or None
+            doc_lon = float(raw.get("lon") or raw.get("longitude") or 0) or None
+        except (ValueError, TypeError):
+            doc_lat, doc_lon = None, None
+
         result_dict = {
             "id": doc["id"],
             "title": doc["title"],
@@ -813,6 +822,9 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
             "reddit_snippet": None,
             "search_mode": "svd" if use_svd else "tfidf",
             "matched_dimensions": matched_dimensions,
+            "lat": doc_lat,
+            "lon": doc_lon,
+            "places_data": None,
         }
 
         if doc["source"] == "reddit":
@@ -866,6 +878,19 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
             s_res["score"] = round(s_res["score"] + 0.05, 6)
             
     top_structured.sort(key=lambda x: x["score"], reverse=True)
+
+    # Enrich place results with pre-fetched Google Places data (website, hours, rating, etc.)
+    PLACES_SOURCES = {"osm", "dining"}
+    for result in top_structured:
+        if result["source"] not in PLACES_SOURCES:
+            continue
+        places_data = get_places_data(result["id"])
+        if places_data:
+            result["places_data"] = places_data
+            # Prefer Places API website over OSM website when present
+            if places_data.get("website") and not result.get("url"):
+                result["url"] = places_data["website"]
+
     return top_structured, query_profile, ("svd" if use_svd else "tfidf")
 
 
