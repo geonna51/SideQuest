@@ -753,10 +753,18 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
     if query_norm == 0.0:
         return [], {"positive": [], "negative": []}, "tfidf"
 
+    query_terms = set(query_vec.keys())
+    short_keyword_query = len(query_terms) <= 2
+
     use_svd = mode == "svd" and SVD_STATUS["enabled"]
     query_latent = None
     query_latent_norm = 0.0
     query_profile = {"positive": [], "negative": []}
+
+    # Short keyword searches such as "pizza" or "zumba" behave better with
+    # lexical ranking than with latent similarity, which can overgeneralize.
+    if short_keyword_query:
+        use_svd = False
 
     if use_svd:
         query_latent, query_latent_norm = build_query_latent_vector(query_vec)
@@ -775,62 +783,143 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
     }
     allowed_sources = source_mapping.get(source, source_mapping["all"])
 
-    structured_results = []
+    structured_candidates = []
     reddit_results = []
 
-    for doc_idx, doc in enumerate(SEARCH_DOCS):
-        lexical_score = cosine_similarity(query_vec, query_norm, doc["_tfidf"], doc["_norm"])
-
-        if use_svd and doc_idx in LATENT_DOC_INDEX:
-            latent_idx = LATENT_DOC_INDEX[doc_idx]
-            svd_score = cosine_similarity_dense(
-                query_latent,
-                query_latent_norm,
-                DOC_LATENT_MATRIX[latent_idx],
-                float(DOC_LATENT_NORMS[latent_idx]),
-            )
-            matched_dimensions = explain_svd_alignment(query_latent, DOC_LATENT_MATRIX[latent_idx])
-            score = (0.7 * svd_score) + (0.3 * lexical_score)
-        else:
-            score = lexical_score
-            matched_dimensions = []
-
-        if score <= 0:
-            continue
-            
-        # Pull lat/lon from raw CSV row (OSM, dining, recs, trails sources)
+    def extract_lat_lon(doc):
         raw = doc.get("raw", {})
         try:
             doc_lat = float(raw.get("lat") or raw.get("latitude") or 0) or None
             doc_lon = float(raw.get("lon") or raw.get("longitude") or 0) or None
         except (ValueError, TypeError):
             doc_lat, doc_lon = None, None
+        return doc_lat, doc_lon
 
-        result_dict = {
-            "id": doc["id"],
-            "title": doc["title"],
-            "description": doc["description"],
-            "organization": doc["organization"],
-            "category": doc["category"],
-            "location": doc["location"],
-            "start_time": doc["start_time"],
-            "end_time": doc["end_time"],
-            "url": doc["url"],
-            "source": doc["source"],
-            "doc_type": doc["doc_type"],
-            "score": round(score, 6),
-            "reddit_snippet": None,
-            "search_mode": "svd" if use_svd else "tfidf",
-            "matched_dimensions": matched_dimensions,
-            "lat": doc_lat,
-            "lon": doc_lon,
-            "places_data": None,
-        }
+    for doc_idx, doc in enumerate(SEARCH_DOCS):
+        lexical_score = cosine_similarity(query_vec, query_norm, doc["_tfidf"], doc["_norm"])
+        overlap_terms = query_terms.intersection(doc["_token_counts"].keys())
 
         if doc["source"] == "reddit":
-            reddit_results.append(result_dict)
-        elif doc["source"] in allowed_sources:
-            structured_results.append(result_dict)
+            if lexical_score > 0:
+                reddit_results.append({
+                    "id": doc["id"],
+                    "title": doc["title"],
+                    "description": doc["description"],
+                    "organization": doc["organization"],
+                    "category": doc["category"],
+                    "location": doc["location"],
+                    "start_time": doc["start_time"],
+                    "end_time": doc["end_time"],
+                    "url": doc["url"],
+                    "source": doc["source"],
+                    "doc_type": doc["doc_type"],
+                    "score": round(lexical_score, 6),
+                    "reddit_snippet": None,
+                    "search_mode": "tfidf",
+                    "matched_dimensions": [],
+                    "lat": None,
+                    "lon": None,
+                    "places_data": None,
+                })
+            continue
+
+        if doc["source"] not in allowed_sources or lexical_score <= 0:
+            continue
+
+        overlap_weight = sum(IDF.get(term, 0.0) for term in overlap_terms)
+        structured_candidates.append({
+            "doc_idx": doc_idx,
+            "doc": doc,
+            "lexical_score": lexical_score,
+            "overlap_count": len(overlap_terms),
+            "overlap_weight": overlap_weight,
+        })
+
+    top_lexical_score = max((candidate["lexical_score"] for candidate in structured_candidates), default=0.0)
+    if use_svd and (len(structured_candidates) < max(top_k, 5) or top_lexical_score < 0.3):
+        use_svd = False
+        query_profile = {"positive": [], "negative": []}
+
+    if use_svd:
+        # Treat SVD as a reranker over a lexical shortlist instead of a
+        # standalone retriever. This keeps the semantic signal useful without
+        # letting broad latent clusters dominate obviously relevant matches.
+        candidate_pool_size = max(top_k * 5, 25)
+        structured_candidates.sort(
+            key=lambda item: (
+                item["lexical_score"],
+                item["overlap_weight"],
+                item["overlap_count"],
+            ),
+            reverse=True,
+        )
+        rerank_candidates = structured_candidates[:candidate_pool_size]
+        structured_results = []
+
+        for candidate in rerank_candidates:
+            doc_idx = candidate["doc_idx"]
+            doc = candidate["doc"]
+            lexical_score = candidate["lexical_score"]
+            svd_score = 0.0
+            matched_dimensions = []
+            doc_lat, doc_lon = extract_lat_lon(doc)
+
+            if doc_idx in LATENT_DOC_INDEX:
+                latent_idx = LATENT_DOC_INDEX[doc_idx]
+                svd_score = max(0.0, cosine_similarity_dense(
+                    query_latent,
+                    query_latent_norm,
+                    DOC_LATENT_MATRIX[latent_idx],
+                    float(DOC_LATENT_NORMS[latent_idx]),
+                ))
+                if svd_score > 0:
+                    matched_dimensions = explain_svd_alignment(query_latent, DOC_LATENT_MATRIX[latent_idx])
+
+            score = (0.75 * lexical_score) + (0.25 * svd_score)
+            structured_results.append({
+                "id": doc["id"],
+                "title": doc["title"],
+                "description": doc["description"],
+                "organization": doc["organization"],
+                "category": doc["category"],
+                "location": doc["location"],
+                "start_time": doc["start_time"],
+                "end_time": doc["end_time"],
+                "url": doc["url"],
+                "source": doc["source"],
+                "doc_type": doc["doc_type"],
+                "score": round(score, 6),
+                "reddit_snippet": None,
+                "search_mode": "svd",
+                "matched_dimensions": matched_dimensions,
+                "lat": doc_lat,
+                "lon": doc_lon,
+                "places_data": None,
+            })
+    else:
+        structured_results = [
+            {
+                "id": candidate["doc"]["id"],
+                "title": candidate["doc"]["title"],
+                "description": candidate["doc"]["description"],
+                "organization": candidate["doc"]["organization"],
+                "category": candidate["doc"]["category"],
+                "location": candidate["doc"]["location"],
+                "start_time": candidate["doc"]["start_time"],
+                "end_time": candidate["doc"]["end_time"],
+                "url": candidate["doc"]["url"],
+                "source": candidate["doc"]["source"],
+                "doc_type": candidate["doc"]["doc_type"],
+                "score": round(candidate["lexical_score"], 6),
+                "reddit_snippet": None,
+                "search_mode": "tfidf",
+                "matched_dimensions": [],
+                "lat": extract_lat_lon(candidate["doc"])[0],
+                "lon": extract_lat_lon(candidate["doc"])[1],
+                "places_data": None,
+            }
+            for candidate in structured_candidates
+        ]
 
     structured_results.sort(key=lambda x: x["score"], reverse=True)
     reddit_results.sort(key=lambda x: x["score"], reverse=True)
@@ -933,7 +1022,7 @@ def synthesize_search_answer(query, results):
             "warning": None,
         }
 
-    api_key = os.getenv("API_KEY")
+    api_key = os.getenv("SPARK_API_KEY")
     if not api_key:
         return {
             "answer": None,
@@ -946,10 +1035,17 @@ def synthesize_search_answer(query, results):
         {
             "role": "system",
             "content": (
-                "You are a helpful assistant for SideQuest, an Ithaca activity search app. "
-                "Answer the user's query using only the retrieved search results provided to you. "
-                "Do not invent facts. If the results are incomplete or ambiguous, say so clearly. "
-                "Prefer concise recommendations and mention specific titles when useful."
+                "You are the recommendation assistant for SideQuest, an Ithaca activity search app. "
+                "Your job is to turn ranked search results into a short, trustworthy recommendation. "
+                "Use only the retrieved results provided in the context. Do not invent facts, dates, locations, prices, or availability that are not present in the results. "
+                "You may use or include details or discussion retrieved from results if they are present. "
+                "Treat higher-scored results as stronger matches, but do not claim certainty from score alone. "
+                "Prioritize the activities that best match the semantic intent of the user's query, and mention specific titles early."
+                "Discard any retrieved results which are not semantically relevant to the user's query. "
+                "When helpful, compare 2-3 strong options and explain why they fit. "
+                "If important details are missing or the results are only loosely related, say that clearly. "
+                "Keep the tone helpful and concise."
+                "Return response in markdown formatting with short paragraphs and bullets."
             ),
         },
         {
@@ -957,7 +1053,15 @@ def synthesize_search_answer(query, results):
             "content": (
                 f"User query: {query}\n\n"
                 f"Retrieved results:\n{context_text}\n\n"
-                "Synthesize a helpful answer grounded in these results."
+                "Write a recommendation grounded in these results.\n"
+                "Requirements:\n"
+                "- Start with the best overall recommendation, using the exact title.\n"
+                "- Briefly explain why it matches the query using only details from the results.\n"
+                "- If there are useful alternatives, mention at most two additional options.\n"
+                "- Mention logistics like location, time, organization, or URL only when they are present and relevant.\n"
+                "- Do not mention items that are not in the retrieved results.\n"
+                "- If the results are mixed or weak, say that and suggest the closest matches instead.\n"
+                "- Keep the answer to one short paragraph."
             ),
         },
     ]
@@ -992,6 +1096,7 @@ def api_search():
     mode = request.args.get("mode", "svd").strip().lower()
     top_k_raw = request.args.get("top_k", "10")
     future_only = request.args.get("future_only", "true").strip().lower() != "false"
+    include_summary = request.args.get("include_summary", "").strip().lower() in {"1", "true", "yes"}
 
     date_from = None
     date_to = None
@@ -1039,13 +1144,16 @@ def api_search():
         date_to=date_to,
     )
 
-    synthesis = synthesize_search_answer(query, results)
+    synthesis = {"answer": None, "warning": None}
+    if include_summary:
+        synthesis = synthesize_search_answer(query, results)
 
     return jsonify({
         "query": query,
         "source": source,
         "requested_mode": mode,
         "effective_mode": effective_mode,
+        "include_summary": include_summary,
         "count": len(results),
         "results": results,
         "query_latent_profile": query_profile,

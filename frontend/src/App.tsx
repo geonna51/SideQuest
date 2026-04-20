@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import './App.css'
 import SearchIcon from './assets/mag.png'
 import BearLogo from './assets/sidequest_bear_logo.png'
@@ -83,6 +85,7 @@ type SearchResult = {
 }
 
 function App(): JSX.Element {
+  const [searchInput, setSearchInput] = useState<string>('')
   const [searchTerm, setSearchTerm] = useState<string>('')
   const [source, setSource] = useState<string>('all')
   const [searchMode, setSearchMode] = useState<'svd' | 'tfidf'>('svd')
@@ -100,6 +103,7 @@ function App(): JSX.Element {
   const [effectiveMode, setEffectiveMode] = useState<'svd' | 'tfidf'>('svd')
   const [retrievalContext, setRetrievalContext] = useState<string[]>([])
   const [loading, setLoading] = useState<boolean>(false)
+  const [summaryLoading, setSummaryLoading] = useState<boolean>(false)
   const [error, setError] = useState<string>('')
   const [sortBy, setSortBy] = useState<'score' | 'date_asc' | 'date_desc'>('score')
   const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null)
@@ -156,7 +160,7 @@ function App(): JSX.Element {
     setDateFrom(from)
     setDateTo(to)
 
-    if (q) void handleSearch(q, src, mode, time, area, intent, future, from, to)
+    if (q) setSearchInput(q)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -202,7 +206,7 @@ function App(): JSX.Element {
     }
   }
 
-  const handleSearch = async (
+  const runSearch = async (
     value: string,
     selectedSource: string = source,
     selectedMode: 'svd' | 'tfidf' = searchMode,
@@ -211,11 +215,11 @@ function App(): JSX.Element {
     selectedIntent: string = intentFilter,
     selectedFutureOnly: boolean = futureOnly,
     selectedDateFrom: string = dateFrom,
-    selectedDateTo: string = dateTo
+    selectedDateTo: string = dateTo,
+    includeSummary: boolean = false
   ): Promise<void> => {
-    setSearchTerm(value)
-
     if (value.trim() === '') {
+      setSearchTerm('')
       setResults([])
       setVisibleCount(10)
       setAnswer('')
@@ -227,15 +231,24 @@ function App(): JSX.Element {
     }
 
     const { composedQuery, labels } = buildAugmentedQuery(value, selectedTime, selectedArea, selectedIntent)
-    setLoading(true)
     setVisibleCount(10)
+    setSearchTerm(value.trim())
     setError('')
     setRetrievalContext(labels)
+    setAnswer('')
+    setAnswerWarning('')
+
+    if (includeSummary) {
+      setSummaryLoading(true)
+    } else {
+      setLoading(true)
+    }
 
     try {
       let apiUrl = `/api/search?q=${encodeURIComponent(composedQuery)}&source=${encodeURIComponent(selectedSource)}&mode=${encodeURIComponent(selectedMode)}&future_only=${selectedFutureOnly}&top_k=30`
       if (selectedDateFrom) apiUrl += `&date_from=${encodeURIComponent(selectedDateFrom)}`
       if (selectedDateTo) apiUrl += `&date_to=${encodeURIComponent(selectedDateTo)}`
+      apiUrl += `&include_summary=${includeSummary ? '1' : '0'}`
       const response = await fetch(apiUrl)
 
       if (!response.ok) {
@@ -257,38 +270,65 @@ function App(): JSX.Element {
       setQueryLatentProfile({ positive: [], negative: [] })
       setRetrievalContext(labels)
     } finally {
-      setLoading(false)
+      if (includeSummary) {
+        setSummaryLoading(false)
+      } else {
+        setLoading(false)
+      }
     }
   }
 
-  const handleSourceChange = async (newSource: string): Promise<void> => {
-    setSource(newSource)
-
-    if (searchTerm.trim() !== '') {
-      await handleSearch(searchTerm, newSource, searchMode, timeFilter, areaFilter, intentFilter)
-    }
-  }
-
-  const handleModeChange = async (newMode: 'svd' | 'tfidf'): Promise<void> => {
-    setSearchMode(newMode)
-
-    if (searchTerm.trim() !== '') {
-      await handleSearch(searchTerm, source, newMode, timeFilter, areaFilter, intentFilter)
-    }
-  }
-
-  const handleContextChange = async (
-    nextTime: string = timeFilter,
-    nextArea: string = areaFilter,
-    nextIntent: string = intentFilter
+  const handleSearch = async (
+    value: string,
+    selectedSource: string = source,
+    selectedMode: 'svd' | 'tfidf' = searchMode,
+    selectedTime: string = timeFilter,
+    selectedArea: string = areaFilter,
+    selectedIntent: string = intentFilter,
+    selectedFutureOnly: boolean = futureOnly,
+    selectedDateFrom: string = dateFrom,
+    selectedDateTo: string = dateTo
   ): Promise<void> => {
-    if (searchTerm.trim() !== '') {
-      await handleSearch(searchTerm, source, searchMode, nextTime, nextArea, nextIntent)
-    } else {
-      const { labels } = buildAugmentedQuery('', nextTime, nextArea, nextIntent)
-      setRetrievalContext(labels)
-    }
+    await runSearch(
+      value,
+      selectedSource,
+      selectedMode,
+      selectedTime,
+      selectedArea,
+      selectedIntent,
+      selectedFutureOnly,
+      selectedDateFrom,
+      selectedDateTo,
+      false
+    )
   }
+
+  const handleSummarySubmit = async (): Promise<void> => {
+    await runSearch(searchTerm, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, dateFrom, dateTo, true)
+  }
+
+  useEffect(() => {
+    const trimmedInput = searchInput.trim()
+
+    if (trimmedInput === '') {
+      setSearchTerm('')
+      setResults([])
+      setVisibleCount(10)
+      setAnswer('')
+      setAnswerWarning('')
+      setQueryLatentProfile({ positive: [], negative: [] })
+      setRetrievalContext([])
+      setError('')
+      setLoading(false)
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void runSearch(trimmedInput, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, dateFrom, dateTo, false)
+    }, 300)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [searchInput, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, dateFrom, dateTo])
 
   return (
     <div className="full-body-container">
@@ -298,28 +338,25 @@ function App(): JSX.Element {
           <h1 className="sidequest-title">Side<span>Quest</span></h1>
         </div>
 
-        <div
-          className="input-box"
-          onClick={() => document.getElementById('search-input')?.focus()}
-        >
+        <div className="input-box">
           <img src={SearchIcon} alt="search" />
           <input
             id="search-input"
             placeholder="Search for things to do in Ithaca..."
-            value={searchTerm}
-            onChange={(e) => void handleSearch(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
           />
         </div>
 
         <section className="search-controls-card" aria-label="Search filters">
           <div className="filter-control">
             <label htmlFor="source-filter" className="filter-label">Category</label>
-            <select
-              id="source-filter"
-              className="filter-select"
-              value={source}
-              onChange={(e) => void handleSourceChange(e.target.value)}
-            >
+              <select
+                id="source-filter"
+                className="filter-select"
+                value={source}
+                onChange={(e) => setSource(e.target.value)}
+              >
               <option value="all">All categories</option>
               <option value="events">Events & Activities</option>
               <option value="places">Interesting Places</option>
@@ -337,9 +374,7 @@ function App(): JSX.Element {
                 className="filter-select"
                 value={timeFilter}
                 onChange={(e) => {
-                  const next = e.target.value
-                  setTimeFilter(next)
-                  void handleContextChange(next, areaFilter, intentFilter)
+                  setTimeFilter(e.target.value)
                 }}
               >
                 {TIME_OPTIONS.map((option) => (
@@ -355,9 +390,7 @@ function App(): JSX.Element {
                 className="filter-select"
                 value={areaFilter}
                 onChange={(e) => {
-                  const next = e.target.value
-                  setAreaFilter(next)
-                  void handleContextChange(timeFilter, next, intentFilter)
+                  setAreaFilter(e.target.value)
                 }}
               >
                 {AREA_OPTIONS.map((option) => (
@@ -373,9 +406,7 @@ function App(): JSX.Element {
                 className="filter-select"
                 value={intentFilter}
                 onChange={(e) => {
-                  const next = e.target.value
-                  setIntentFilter(next)
-                  void handleContextChange(timeFilter, areaFilter, next)
+                  setIntentFilter(e.target.value)
                 }}
               >
                 {INTENT_OPTIONS.map((option) => (
@@ -459,7 +490,7 @@ function App(): JSX.Element {
                 type="button"
                 className={`mode-toggle-button ${searchMode === 'svd' ? 'active' : ''}`}
                 aria-pressed={searchMode === 'svd'}
-                onClick={() => void handleModeChange('svd')}
+                onClick={() => setSearchMode('svd')}
               >
                 <span className="mode-toggle-title">SVD Search</span>
                 <span className="mode-toggle-subtitle">Latent semantic ranking</span>
@@ -468,7 +499,7 @@ function App(): JSX.Element {
                 type="button"
                 className={`mode-toggle-button ${searchMode === 'tfidf' ? 'active' : ''}`}
                 aria-pressed={searchMode === 'tfidf'}
-                onClick={() => void handleModeChange('tfidf')}
+                onClick={() => setSearchMode('tfidf')}
               >
                 <span className="mode-toggle-title">TF-IDF Baseline</span>
                 <span className="mode-toggle-subtitle">Exact lexical matching</span>
@@ -479,11 +510,10 @@ function App(): JSX.Element {
       </div>
 
       <div id="answer-box">
-        {loading && (
-          <div className="loading-state">
-            <div className="spinner" aria-hidden="true" />
-            <p className="status-message">Searching the area...</p>
-          </div>
+        {(loading || summaryLoading) && (
+          <p className="status-message loading-pulse">
+            {summaryLoading ? 'Generating recommendation summary...' : 'Searching the area...'}
+          </p>
         )}
         {error && <p className="status-message error-message">{error}</p>}
 
@@ -493,14 +523,24 @@ function App(): JSX.Element {
               <div>
                 <p className="synthesis-eyebrow">LLM Synthesis</p>
                 <h2 className="synthesis-title">Quick recommendation summary</h2>
+                <br></br>
               </div>
               <span className={`synthesis-status-pill ${hasSynthesisAnswer ? 'ready' : 'offline'}`}>
-                {hasSynthesisAnswer ? 'Available' : 'Unavailable'}
+                {hasSynthesisAnswer ? 'Available' : 'On demand'}
               </span>
             </div>
 
             {hasSynthesisAnswer && (
-              <p className="episode-desc synthesis-copy">{answer}</p>
+              <div className="episode-desc synthesis-copy">
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
+                  }}
+                >
+                  {answer}
+                </ReactMarkdown>
+              </div>
             )}
 
             {!hasSynthesisAnswer && hasSynthesisWarning && (
@@ -515,12 +555,21 @@ function App(): JSX.Element {
 
             {!hasSynthesisAnswer && !hasSynthesisWarning && (
               <div className="synthesis-empty-state">
-                <p className="synthesis-empty-title">A summary will appear here after results load.</p>
+                <p className="synthesis-empty-title">Generate a summary when you are ready.</p>
                 <p className="synthesis-empty-copy">
-                  Use this panel to compare how the ranked results roll up into a short recommendation.
+                  Press the "summary" button to synthesize search results.
                 </p>
               </div>
             )}
+
+            <button
+              type="button"
+              className="summary-trigger-button"
+              onClick={() => void handleSummarySubmit()}
+              disabled={loading || summaryLoading || results.length === 0}
+            >
+              {summaryLoading ? 'Generating...' : 'Generate LLM Summary'}
+            </button>
 
             {retrievalContext.length > 0 && (
               <div className="context-chip-bar" aria-label="Active retrieval context">
