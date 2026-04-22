@@ -120,14 +120,15 @@ def standardize_time(time_str):
     return str(time_str).strip()
 
 def detect_boilerplate(text):
-    text_lower = str(text).lower().strip()
+    original = str(text).strip()
+    text_lower = original.lower()
     boilers = [
-        "tbd", "no description available", "click for details", 
+        "tbd", "no description available", "click for details",
         "description coming soon", "null", "none"
     ]
     if text_lower in boilers:
         return ""
-    return text_lower
+    return original
 
 def clean_record(doc):
     title = str(doc.get("title", "")).strip()

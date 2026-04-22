@@ -228,14 +228,16 @@ def expand_query_tokens(query_tokens):
         expanded.extend(["library", "quiet_study", "study_friendly"])
     if query_intents["late_night"] and not query_intents["social"]:
         expanded.extend(["late_night", "open_late"])
+    has_specific_food = bool(token_set & FOOD_ITEM_TERMS)
     if query_intents["food"] and not query_intents["social"]:
-        expanded.extend(["food", "restaurant", "cafe", "dining"])
+        if has_specific_food:
+            expanded.extend(["food", "restaurant"])
+        else:
+            expanded.extend(["food", "restaurant", "cafe", "dining"])
     if query_intents["cheap"]:
         expanded.extend(["cheap", "budget", "budget_friendly"])
     if query_intents["fitness"]:
         expanded.extend(["fitness", "group_fitness", "athletics"])
-    if token_set & FOOD_ITEM_TERMS and not query_intents["social"]:
-        expanded.extend(["food", "restaurant", "cafe", "dining"])
     if token_set & MOVIE_QUERY_TERMS:
         expanded.extend(sorted(MOVIE_QUERY_EXPANSIONS))
 
@@ -736,6 +738,77 @@ def load_reddit_documents():
 # -----------------------------
 # CSV Datasets Loading
 # -----------------------------
+_OSM_TEMPLATES = {
+    ("amenity", "restaurant"):        "{n} is a restaurant in Ithaca offering dine-in meals.",
+    ("amenity", "cafe"):              "{n} is a café in Ithaca serving coffee, drinks, and light meals.",
+    ("amenity", "fast_food"):         "{n} is a fast food spot in Ithaca for quick, affordable meals.",
+    ("amenity", "bar"):               "{n} is a bar in Ithaca serving drinks and cocktails.",
+    ("amenity", "pub"):               "{n} is a pub in Ithaca with drinks and a relaxed atmosphere.",
+    ("amenity", "ice_cream"):         "{n} is an ice cream shop in Ithaca.",
+    ("amenity", "bakery"):            "{n} is a bakery in Ithaca serving fresh baked goods.",
+    ("amenity", "place_of_worship"):  "{n} is a place of worship in the Ithaca area.",
+    ("amenity", "school"):            "{n} is a school in Ithaca.",
+    ("amenity", "clinic"):            "{n} is a medical clinic in Ithaca.",
+    ("amenity", "dentist"):           "{n} is a dental office in Ithaca.",
+    ("amenity", "veterinary"):        "{n} is a veterinary clinic in Ithaca.",
+    ("amenity", "pharmacy"):          "{n} is a pharmacy in Ithaca.",
+    ("amenity", "bank"):              "{n} is a bank in Ithaca.",
+    ("amenity", "library"):           "{n} is a library in Ithaca with books and study resources.",
+    ("amenity", "theatre"):           "{n} is a theatre in Ithaca for performances and events.",
+    ("amenity", "community_centre"):  "{n} is a community center in Ithaca hosting local events and programs.",
+    ("amenity", "marketplace"):       "{n} is a marketplace in Ithaca.",
+    ("amenity", "fuel"):              "{n} is a gas station in Ithaca.",
+    ("amenity", "grave_yard"):        "{n} is a cemetery in Ithaca.",
+    ("amenity", "townhall"):          "{n} is a town hall or government building in Ithaca.",
+    ("amenity", "fire_station"):      "{n} is a fire station in Ithaca.",
+    ("amenity", "police"):            "{n} is a police station in Ithaca.",
+    ("leisure", "park"):              "{n} is a park in Ithaca, great for outdoor relaxation and recreation.",
+    ("leisure", "playground"):        "{n} is a playground in Ithaca for outdoor play.",
+    ("leisure", "pitch"):             "{n} is an outdoor sports court or field in Ithaca.",
+    ("leisure", "swimming_pool"):     "{n} is a swimming pool in Ithaca.",
+    ("leisure", "fitness_centre"):    "{n} is a fitness center in Ithaca with gym and workout facilities.",
+    ("leisure", "sports_centre"):     "{n} is a sports and recreation center in Ithaca.",
+    ("leisure", "nature_reserve"):    "{n} is a nature reserve in the Ithaca area with trails and wildlife.",
+    ("leisure", "garden"):            "{n} is a garden in Ithaca, a peaceful outdoor spot.",
+    ("leisure", "golf_course"):       "{n} is a golf course in the Ithaca area.",
+    ("leisure", "stadium"):           "{n} is a stadium in Ithaca hosting sports and events.",
+    ("leisure", "slipway"):           "{n} is a boat launch near Ithaca.",
+    ("tourism", "hotel"):             "{n} is a hotel in Ithaca offering overnight accommodation.",
+    ("tourism", "motel"):             "{n} is a motel in Ithaca offering overnight accommodation.",
+    ("tourism", "guest_house"):       "{n} is a guest house in Ithaca offering lodging.",
+    ("tourism", "museum"):            "{n} is a museum in Ithaca with exhibits and cultural programming.",
+    ("tourism", "attraction"):        "{n} is a local attraction in the Ithaca area worth visiting.",
+    ("tourism", "viewpoint"):         "{n} is a scenic viewpoint in the Ithaca area.",
+    ("tourism", "camp_pitch"):        "{n} is a camping spot in the Ithaca area for outdoor overnight stays.",
+    ("building", "university"):       "{n} is a Cornell University academic or administrative building.",
+    ("building", "dormitory"):        "{n} is a Cornell student dormitory.",
+    ("shop", "convenience"):          "{n} is a convenience store in Ithaca for everyday essentials.",
+    ("shop", "supermarket"):          "{n} is a supermarket in Ithaca for grocery shopping.",
+    ("shop", "bakery"):               "{n} is a bakery in Ithaca with fresh breads and pastries.",
+    ("shop", "alcohol"):              "{n} is a liquor and wine shop in Ithaca.",
+    ("shop", "books"):                "{n} is a bookstore in Ithaca.",
+    ("shop", "sports"):               "{n} is a sporting goods store in Ithaca.",
+    ("shop", "hairdresser"):          "{n} is a hair salon in Ithaca.",
+    ("shop", "clothes"):              "{n} is a clothing store in Ithaca.",
+    ("shop", "bicycle"):              "{n} is a bicycle shop in Ithaca for sales and repairs.",
+    ("shop", "cannabis"):             "{n} is a cannabis dispensary in Ithaca.",
+    ("shop", "department_store"):     "{n} is a department store in Ithaca.",
+    ("shop", "supermarket"):          "{n} is a supermarket in Ithaca.",
+    ("highway", "bus_stop"):          "{n} is a bus stop in Ithaca.",
+    ("historic", "memorial"):         "{n} is a historic memorial or landmark in Ithaca.",
+    ("office", "government"):         "{n} is a government office in Ithaca.",
+    ("office", "research"):           "{n} is a research office or institute in Ithaca.",
+}
+
+def _osm_template_description(name, category, subcategory):
+    template = _OSM_TEMPLATES.get((category, subcategory))
+    n = name if name else f"This {subcategory.replace('_', ' ') or category}"
+    if template:
+        return template.format(n=n)
+    label = subcategory.replace("_", " ") if subcategory else category
+    return f"{n} is a {label} in Ithaca." if name else f"A {label} in Ithaca."
+
+
 def load_generic_csv_documents(csv_path, source_name):
     docs = []
     if not os.path.exists(csv_path):
@@ -753,13 +826,16 @@ def load_generic_csv_documents(csv_path, source_name):
             subcategory = row.get("subcategory", "").strip()
             address = row.get("address", "").strip() or row.get("location", "").strip()
             db_desc = row.get("description", "").strip()
-            
-            description_parts = []
-            if db_desc: description_parts.append(db_desc)
-            if category: description_parts.append(f"Category: {category}")
-            if subcategory: description_parts.append(f"Type: {subcategory}")
-            if address: description_parts.append(f"Address: {address}")
-            description = " | ".join(description_parts)
+
+            if not db_desc and source_name == "osm":
+                db_desc = _osm_template_description(title, category, subcategory)
+
+            meta_parts = []
+            if category: meta_parts.append(f"Category: {category}")
+            if subcategory: meta_parts.append(f"Type: {subcategory}")
+            if address: meta_parts.append(f"Address: {address}")
+            meta_line = " | ".join(meta_parts)
+            description = "\n".join(filter(None, [db_desc, meta_line]))
             
             search_text = " ".join([title, category, subcategory, address, db_desc])
             
@@ -1648,6 +1724,9 @@ def reformulate_query_for_ir(query):
                 "Extract core entities and intents. Expand vague concepts with corpus-relevant synonyms "
                 "(e.g., 'nature' -> 'trail gorge park preserve', 'food' -> 'dining restaurant cafe', "
                 "'study spot' -> 'library cafe quiet wifi', 'workout' -> 'gym fitness recreation'). "
+                "IMPORTANT: For specific food items (e.g., 'pizza', 'ramen', 'sushi', 'burger', 'coffee'), "
+                "keep the specific term and add 'restaurant' but do NOT add generic 'dining' or 'cafe' — "
+                "those terms match campus dining halls, not specific food establishments. "
                 "Return ONLY space-separated keywords. No sentences, no quotes, no punctuation, no numbering."
             ),
         },
