@@ -719,12 +719,16 @@ function App(): JSX.Element {
                   </div>
 
                   {result.description && (
-                    <p className="episode-desc">{result.description}</p>
+                    <p className="episode-desc">
+                      {result.source === 'reddit' && result.description.length > 150 
+                        ? result.description.slice(0, 150) + '...' 
+                        : result.description}
+                    </p>
                   )}
 
                   {result.reddit_snippet && (
                     <div style={{ padding: '12px 16px', marginTop: '1rem', marginBottom: '1rem', backgroundColor: '#f9fafb', borderLeft: '3px solid #d1d5db', fontStyle: 'italic', fontSize: '0.95em', color: '#4b5563', borderRadius: '0 8px 8px 0' }}>
-                      💡 {result.reddit_snippet}
+                      💡 {result.reddit_snippet.length > 150 ? result.reddit_snippet.slice(0, 150) + '...' : result.reddit_snippet}
                     </div>
                   )}
 
@@ -851,6 +855,12 @@ function App(): JSX.Element {
 
               {selectedResult.description && (
                 <p className="modal-description">{selectedResult.description}</p>
+              )}
+
+              {selectedResult.reddit_snippet && (
+                <div style={{ padding: '12px 16px', marginTop: '1rem', marginBottom: '1rem', backgroundColor: '#f9fafb', borderLeft: '3px solid #d1d5db', fontStyle: 'italic', fontSize: '0.95em', color: '#4b5563', borderRadius: '0 8px 8px 0' }}>
+                  💡 {selectedResult.reddit_snippet}
+                </div>
               )}
 
               {selectedResult.places_data?.hours && (

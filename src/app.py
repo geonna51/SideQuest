@@ -1423,16 +1423,20 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
     query_tokens = set(normalized_query_tokens(query, restrict_to_vocab=False))
     query_intents = infer_query_intents(query_tokens)
     if source == "all":
+        allowed_sources = set()
         if query_intents["food"] and not query_intents["social"]:
-            allowed_sources = {"dining", "osm", "cafes"}
-        elif {"hike", "trail", "waterfall", "nature", "outdoor"} & query_tokens:
-            allowed_sources = {"trails", "osm"}
-        elif {"gym", "workout", "fitness", "exercise", "active"} & query_tokens:
-            allowed_sources = {"recs", "osm"}
-        elif query_intents["nightlife"] and query_intents["social"]:
-            allowed_sources = {"cafes", "campusgroups", "osm"}
-        elif query_intents["place_like"] and (query_intents["study_friendly"] or query_intents["late_night"]) and not query_intents["social"]:
-            allowed_sources = {"osm", "dining", "libraries", "cafes"}
+            allowed_sources.update({"dining", "osm", "cafes"})
+        if {"hike", "trail", "waterfall", "nature", "outdoor"} & query_tokens:
+            allowed_sources.update({"trails", "osm"})
+        if {"gym", "workout", "fitness", "exercise", "active"} & query_tokens:
+            allowed_sources.update({"recs", "osm"})
+        if query_intents["nightlife"] and query_intents["social"]:
+            allowed_sources.update({"cafes", "campusgroups", "osm"})
+        if query_intents["place_like"] and (query_intents["study_friendly"] or query_intents["late_night"]) and not query_intents["social"]:
+            allowed_sources.update({"osm", "dining", "libraries", "cafes"})
+            
+        if not allowed_sources:
+            allowed_sources = source_mapping["all"]
 
     raw_query_tokens = normalized_query_tokens(query, restrict_to_vocab=False)
     has_raw_vocab_overlap = any(token in VOCAB for token in raw_query_tokens)
@@ -1653,7 +1657,7 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
                 best_reddit = r_res
                 
         if best_reddit and best_r_score >= 1:
-            snippet = best_reddit["description"][:120] + "..." if len(best_reddit["description"]) > 120 else best_reddit["description"]
+            snippet = best_reddit["description"]
             s_res["reddit_snippet"] = f"Community mention: \"{snippet}\""
             s_res["score"] = round(s_res["score"] + 0.05, 6)
 
@@ -1836,15 +1840,14 @@ def synthesize_search_answer(query, results, rewritten_query=None):
             "content": (
                 f"{query_section}\n\n"
                 f"Retrieved results:\n{context_text}\n\n"
-                "Write a recommendation grounded in these results.\n"
+                "Write a recommendation grounded STRICTLY in these results.\n"
                 "Requirements:\n"
                 "- Write naturally and conversationally. Cite sources seamlessly (e.g., 'Cafe Dewitt is a great option').\n"
-                "- Start with the best overall recommendation.\n"
+                "- Start with the best overall recommendation from the results.\n"
                 "- Briefly explain why it matches the query using only details from the results.\n"
-                "- If multiple results refer to the exact same physical facility or building (e.g., 'Noyes' and 'Noyes Basketball Court'), aggregate them into a single recommendation.\n"
-                "- If there are useful alternatives, mention at most two additional options.\n"
-                "- Mention logistics like location, time, or URL only when they are present and relevant.\n"
-                "- Do not mention items that are not in the retrieved results.\n"
+                "- If multiple results refer to the exact same physical facility or building, aggregate them.\n"
+                "- ONLY mention the exact places or events listed in the exact retrieved results above. NEVER mention places from your own knowledge.\n"
+                "- If there is only one result provided, only discuss that single result. Do not suggest 'other options' if none are listed.\n"
                 "- If the results are mixed or weak, say that and suggest the closest matches instead.\n"
                 "- Keep the answer to one short paragraph."
             ),
