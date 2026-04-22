@@ -109,6 +109,7 @@ function App(): JSX.Element {
   const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null)
   const [rewrittenQuery, setRewrittenQuery] = useState<string | null>(null)
   const activeSearchRequestRef = useRef<number>(0)
+  const loadMoreRef = useRef<HTMLDivElement | null>(null)
   const hasSynthesisAnswer = answer.trim() !== ''
   const hasSynthesisWarning = answerWarning.trim() !== ''
 
@@ -139,6 +140,30 @@ function App(): JSX.Element {
     if (!bValid) return -1
     return sortBy === 'date_asc' ? aTime - bTime : bTime - aTime
   })
+
+  useEffect(() => {
+    const sentinel = loadMoreRef.current
+    if (!sentinel || loading || visibleCount >= sortedResults.length) {
+      return
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries
+        if (entry?.isIntersecting) {
+          setVisibleCount((current) => Math.min(current + 12, sortedResults.length))
+        }
+      },
+      {
+        root: null,
+        rootMargin: '320px 0px',
+        threshold: 0.1,
+      }
+    )
+
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [visibleCount, sortedResults.length, loading])
 
   // Read state from URL on first mount
   useEffect(() => {
@@ -777,14 +802,8 @@ function App(): JSX.Element {
             </div>
 
             {!loading && visibleCount < sortedResults.length && (
-              <div className="show-more-row">
-                <button
-                  type="button"
-                  className="show-more-button"
-                  onClick={() => setVisibleCount((c) => c + 10)}
-                >
-                  Show more ({sortedResults.length - visibleCount} remaining)
-                </button>
+              <div ref={loadMoreRef} className="results-load-sentinel" aria-hidden="true">
+                <span className="results-load-copy">Loading more results as you scroll...</span>
               </div>
             )}
           </section>

@@ -781,6 +781,27 @@
   font-family: 'Montserrat', sans-serif;
   white-space: pre-wrap;
   flex-grow: 1;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.results-load-sentinel {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 72px;
+  padding: 8px 0 0;
+}
+
+.results-load-copy {
+  color: var(--cornell-ink-soft);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 0.86rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .episode-meta-container {
