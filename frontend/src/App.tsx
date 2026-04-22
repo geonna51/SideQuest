@@ -373,7 +373,7 @@ function App(): JSX.Element {
 
   const rankingModeNote = searchMode === 'svd'
     ? effectiveMode === 'svd'
-      ? 'This query used lexical retrieval plus latent semantic reranking. Community snippets from Reddit are matched separately by keyword overlap and shown alongside results.'
+      ? 'This query used lexical retrieval plus latent semantic reranking.'
       : 'This query stayed within the hybrid system, but the ranking fell back to lexical matching because semantic reranking was not reliable for this query.'
     : null
 
@@ -670,110 +670,120 @@ function App(): JSX.Element {
         )}
 
         {results.length > 0 && (
-          <div className="sort-row">
-            <label htmlFor="sort-select" className="filter-label">Sort by</label>
-            <select
-              id="sort-select"
-              className="sort-select"
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as 'score' | 'date_asc' | 'date_desc')}
-            >
-              <option value="score">Best match</option>
-              <option value="date_asc">Date: soonest first</option>
-              <option value="date_desc">Date: latest first</option>
-            </select>
-          </div>
-        )}
+          <section className="results-section">
+            <div className="results-toolbar">
+              <div className="results-toolbar-copy">
+                <p className="results-count">{sortedResults.length} results</p>
+                <p className="results-subtitle">Cards expand into multiple columns when space is available.</p>
+              </div>
+              <div className="sort-row">
+                <label htmlFor="sort-select" className="filter-label">Sort by</label>
+                <select
+                  id="sort-select"
+                  className="sort-select"
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as 'score' | 'date_asc' | 'date_desc')}
+                >
+                  <option value="score">Best match</option>
+                  <option value="date_asc">Date: soonest first</option>
+                  <option value="date_desc">Date: latest first</option>
+                </select>
+              </div>
+            </div>
 
-        {sortedResults.slice(0, visibleCount).map((result) => (
-          <div
-            key={result.id}
-            className="episode-item"
-            role="button"
-            tabIndex={0}
-            onClick={() => setSelectedResult(result)}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedResult(result) }}
-          >
-            <div className="episode-title-row">
-              <h3 className="episode-title">{result.title}</h3>
-              <div className="episode-title-chips">
-                {result.places_data?.price_level && (
-                  <span className="meta-chip price-chip">{result.places_data.price_level}</span>
-                )}
-                {result.places_data?.rating != null && (
-                  <span className="meta-chip rating-chip">
-                    ★ {result.places_data.rating.toFixed(1)}
-                    {result.places_data.rating_count != null && (
-                      <span className="rating-count"> ({result.places_data.rating_count.toLocaleString()})</span>
+            <div className="results-grid">
+              {sortedResults.slice(0, visibleCount).map((result) => (
+                <div
+                  key={result.id}
+                  className="episode-item"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setSelectedResult(result)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedResult(result) }}
+                >
+                  <div className="episode-title-row">
+                    <h3 className="episode-title">{result.title}</h3>
+                    <div className="episode-title-chips">
+                      {result.places_data?.price_level && (
+                        <span className="meta-chip price-chip">{result.places_data.price_level}</span>
+                      )}
+                      {result.places_data?.rating != null && (
+                        <span className="meta-chip rating-chip">
+                          ★ {result.places_data.rating.toFixed(1)}
+                          {result.places_data.rating_count != null && (
+                            <span className="rating-count"> ({result.places_data.rating_count.toLocaleString()})</span>
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {result.description && (
+                    <p className="episode-desc">{result.description}</p>
+                  )}
+
+                  {result.reddit_snippet && (
+                    <div style={{ padding: '12px 16px', marginTop: '1rem', marginBottom: '1rem', backgroundColor: '#f9fafb', borderLeft: '3px solid #d1d5db', fontStyle: 'italic', fontSize: '0.95em', color: '#4b5563', borderRadius: '0 8px 8px 0' }}>
+                      💡 {result.reddit_snippet}
+                    </div>
+                  )}
+
+                  {result.search_mode === 'svd' && result.matched_dimensions && result.matched_dimensions.length > 0 && (
+                    <div className="dimension-panel">
+                      <p className="dimension-group-title">Latent dimensions matched</p>
+                      <div className="dimension-chip-row">
+                        {result.matched_dimensions.map((dimension) => (
+                          <span
+                            key={`${result.id}-${dimension.dimension}-${dimension.direction}`}
+                            className={`dimension-chip ${dimension.direction === 'negative' ? 'negative-chip' : ''}`}
+                          >
+                            D{dimension.dimension} ({dimension.direction === 'positive' ? '+' : '-'}): {dimension.direction === 'positive'
+                              ? dimension.positive_terms.slice(0, 3).join(', ')
+                              : dimension.negative_terms.slice(0, 3).join(', ')}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="episode-meta-container">
+                    {result.source && (
+                      <span className="meta-chip source-chip">{result.source}</span>
                     )}
-                  </span>
-                )}
-              </div>
-            </div>
+                    {result.category && (
+                      <span className="meta-chip">{result.category}</span>
+                    )}
+                    {result.location && (
+                      <span className="meta-chip">📍 {result.location}</span>
+                    )}
+                    {result.start_time && (
+                      <span className="meta-chip">🕒 {result.start_time}</span>
+                    )}
+                    {result.organization && (
+                      <span className="meta-chip">Host: {result.organization}</span>
+                    )}
+                  </div>
 
-            {result.description && (
-              <p className="episode-desc">{result.description}</p>
-            )}
-
-            {result.reddit_snippet && (
-              <div style={{ padding: '12px 16px', marginTop: '1rem', marginBottom: '1rem', backgroundColor: '#f9fafb', borderLeft: '3px solid #d1d5db', fontStyle: 'italic', fontSize: '0.95em', color: '#4b5563', borderRadius: '0 8px 8px 0' }}>
-                💡 {result.reddit_snippet}
-              </div>
-            )}
-
-            {result.search_mode === 'svd' && result.matched_dimensions && result.matched_dimensions.length > 0 && (
-              <div className="dimension-panel">
-                <p className="dimension-group-title">Latent dimensions matched</p>
-                <div className="dimension-chip-row">
-                  {result.matched_dimensions.map((dimension) => (
-                    <span
-                      key={`${result.id}-${dimension.dimension}-${dimension.direction}`}
-                      className={`dimension-chip ${dimension.direction === 'negative' ? 'negative-chip' : ''}`}
-                    >
-                      D{dimension.dimension} ({dimension.direction === 'positive' ? '+' : '-'}): {dimension.direction === 'positive'
-                        ? dimension.positive_terms.slice(0, 3).join(', ')
-                        : dimension.negative_terms.slice(0, 3).join(', ')}
-                    </span>
-                  ))}
+                  <div className="episode-actions">
+                    <span className="meta-chip score-chip">Match: {Math.round(result.score * 100)}%</span>
+                    <span className="action-button">View Details</span>
+                  </div>
                 </div>
+              ))}
+            </div>
+
+            {!loading && visibleCount < sortedResults.length && (
+              <div className="show-more-row">
+                <button
+                  type="button"
+                  className="show-more-button"
+                  onClick={() => setVisibleCount((c) => c + 10)}
+                >
+                  Show more ({sortedResults.length - visibleCount} remaining)
+                </button>
               </div>
             )}
-
-            <div className="episode-meta-container">
-              {result.source && (
-                <span className="meta-chip source-chip">{result.source}</span>
-              )}
-              {result.category && (
-                <span className="meta-chip">{result.category}</span>
-              )}
-              {result.location && (
-                <span className="meta-chip">📍 {result.location}</span>
-              )}
-              {result.start_time && (
-                <span className="meta-chip">🕒 {result.start_time}</span>
-              )}
-              {result.organization && (
-                <span className="meta-chip">Host: {result.organization}</span>
-              )}
-            </div>
-
-            <div className="episode-actions">
-              <span className="meta-chip score-chip">Match: {Math.round(result.score * 100)}%</span>
-              <span className="action-button">View Details</span>
-            </div>
-          </div>
-        ))}
-
-        {!loading && visibleCount < sortedResults.length && (
-          <div className="show-more-row">
-            <button
-              type="button"
-              className="show-more-button"
-              onClick={() => setVisibleCount((c) => c + 10)}
-            >
-              Show more ({sortedResults.length - visibleCount} remaining)
-            </button>
-          </div>
+          </section>
         )}
       </div>
 
