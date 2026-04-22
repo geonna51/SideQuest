@@ -44,6 +44,8 @@ PHRASES = {
 def basic_lemmatize(word):
     if word in {"this", "is", "as", "was", "has", "previous", "campus", "fitness", "class", "always", "plus", "status", "express", "process", "series"}:
         return word
+    if word == "movies":
+        return "movie"
     if word.endswith("ies") and len(word) > 4:
         return word[:-3] + "y"
     if word.endswith("es") and len(word) > 3 and word[-3] in ['s', 'x', 'z', 'h']:

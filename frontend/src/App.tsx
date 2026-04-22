@@ -107,6 +107,7 @@ function App(): JSX.Element {
   const [error, setError] = useState<string>('')
   const [sortBy, setSortBy] = useState<'score' | 'date_asc' | 'date_desc'>('score')
   const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null)
+  const [rewrittenQuery, setRewrittenQuery] = useState<string | null>(null)
   const hasSynthesisAnswer = answer.trim() !== ''
   const hasSynthesisWarning = answerWarning.trim() !== ''
 
@@ -237,6 +238,7 @@ function App(): JSX.Element {
     setRetrievalContext(labels)
     setAnswer('')
     setAnswerWarning('')
+    setRewrittenQuery(null)
 
     setLoading(true)
     if (includeSummary) {
@@ -244,7 +246,7 @@ function App(): JSX.Element {
     }
 
     try {
-      let apiUrl = `/api/search?q=${encodeURIComponent(composedQuery)}&source=${encodeURIComponent(selectedSource)}&mode=${encodeURIComponent(selectedMode)}&future_only=${selectedFutureOnly}&top_k=30`
+      let apiUrl = `/api/search?q=${encodeURIComponent(composedQuery)}&raw_q=${encodeURIComponent(value.trim())}&source=${encodeURIComponent(selectedSource)}&mode=${encodeURIComponent(selectedMode)}&future_only=${selectedFutureOnly}&top_k=30`
       if (selectedDateFrom) apiUrl += `&date_from=${encodeURIComponent(selectedDateFrom)}`
       if (selectedDateTo) apiUrl += `&date_to=${encodeURIComponent(selectedDateTo)}`
       apiUrl += `&include_summary=${includeSummary ? '1' : '0'}`
@@ -260,12 +262,14 @@ function App(): JSX.Element {
       setAnswerWarning(data.answer_warning ?? '')
       setQueryLatentProfile(data.query_latent_profile ?? { positive: [], negative: [] })
       setEffectiveMode(data.effective_mode ?? selectedMode)
+      setRewrittenQuery(data.rewritten_query ?? null)
     } catch (err) {
       console.error(err)
       setError('Failed to load search results.')
       setResults([])
       setAnswer('')
       setAnswerWarning('')
+      setRewrittenQuery(null)
       setQueryLatentProfile({ positive: [], negative: [] })
       setRetrievalContext(labels)
     } finally {
@@ -559,6 +563,11 @@ function App(): JSX.Element {
 
         {!loading && !error && searchTerm.trim() !== '' && (
           <div className="mode-summary-card">
+            {rewrittenQuery && (
+              <div className="rewritten-query-note" style={{ marginBottom: '12px', padding: '8px', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: '6px' }}>
+                <strong style={{ color: '#ffb6b6' }}>RAG Query Rewrite:</strong> Using <em>"{rewrittenQuery}"</em>
+              </div>
+            )}
             <p className="mode-summary-label">
               Search mode in use: <strong>{effectiveMode === 'svd' ? 'SVD latent retrieval' : 'TF-IDF lexical retrieval'}</strong>
             </p>
