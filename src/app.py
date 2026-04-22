@@ -1604,6 +1604,57 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
 
     return deduped, query_profile, ("svd" if use_svd else "tfidf")
 
+def reformulate_query_for_ir(query):
+    """
+    RAG Step 1: Transform a natural-language user query into retrieval-
+    optimized keywords for the IR system.  Returns the rewritten string,
+    or the original query unchanged on failure.
+    """
+    api_key = os.getenv("SPARK_API_KEY")
+    if not api_key:
+        return query
+
+    client = LLMClient(api_key=api_key)
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a search query reformulator for SideQuest, an Ithaca and Cornell activity discovery app. "
+                "Translate the user's conversational request into a concise set of retrieval keywords. "
+                "The corpus contains: OpenStreetMap places (restaurants, parks, shops, cafes), "
+                "Cornell Dining halls, Ithaca hiking trails and gorges, CampusGroups student events, "
+                "Cornell libraries, downtown Ithaca cafes, and Cornell recreation/fitness facilities. "
+                "Extract core entities and intents. Expand vague concepts with corpus-relevant synonyms "
+                "(e.g., 'nature' -> 'trail gorge park preserve', 'food' -> 'dining restaurant cafe', "
+                "'study spot' -> 'library cafe quiet wifi', 'workout' -> 'gym fitness recreation'). "
+                "Return ONLY space-separated keywords. No sentences, no quotes, no punctuation, no numbering."
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"Rewrite this query for better search retrieval: {query}",
+        },
+    ]
+
+    try:
+        response = client.chat(messages)
+        modified_query = (response.get("content") or "").strip()
+        if not modified_query:
+            return query
+        # Strip stray quotes and punctuation
+        modified_query = modified_query.replace('"', '').replace("'", "").strip()
+        # If the LLM returned a sentence (contains a colon preamble), extract the tail
+        if ":" in modified_query:
+            modified_query = modified_query.split(":")[-1].strip()
+        # Cap at 30 words to prevent prompt-injection or runaway output
+        words = modified_query.split()
+        if len(words) > 30:
+            modified_query = " ".join(words[:30])
+        return modified_query
+    except Exception as exc:
+        logger.exception("Failed to reformulate query")
+    return query
+
 
 def build_result_context(results):
     context_blocks = []
@@ -1613,31 +1664,36 @@ def build_result_context(results):
             f"Result {index}",
             f"Title: {result['title']}",
             f"Source: {result['source']}",
-            f"Type: {result['doc_type']}",
-            f"Score: {result['score']}",
+            f"Category: {result['category']}",
         ]
 
-        if result["description"]:
-            lines.append(f"Description: {result['description']}")
-        if result["organization"]:
-            lines.append(f"Organization: {result['organization']}")
-        if result["category"]:
-            lines.append(f"Category: {result['category']}")
-        if result["location"]:
+        desc = result.get("description", "")
+        if desc:
+            if len(desc) > 300:
+                cut = desc[:300].rfind(" ")
+                desc = desc[:cut] + "..." if cut > 0 else desc[:300] + "..."
+            lines.append(f"Snippet: {desc}")
+        if result.get("location"):
             lines.append(f"Location: {result['location']}")
-        if result["start_time"]:
-            lines.append(f"Start Time: {result['start_time']}")
-        if result["end_time"]:
-            lines.append(f"End Time: {result['end_time']}")
-        if result["url"]:
-            lines.append(f"URL: {result['url']}")
+            
+        places_data = result.get("places_data")
+        if places_data:
+            if places_data.get("rating"):
+                lines.append(f"Rating: {places_data['rating']} ({places_data.get('rating_count', 0)} reviews)")
+            if places_data.get("price_level"):
+                lines.append(f"Price: {places_data['price_level']}")
+            if places_data.get("hours") and isinstance(places_data["hours"], list):
+                lines.append(f"Hours: {', '.join(places_data['hours'][:2])}...")
 
         context_blocks.append("\n".join(lines))
 
     return "\n\n---\n\n".join(context_blocks)
 
 
-def synthesize_search_answer(query, results):
+def synthesize_search_answer(query, results, rewritten_query=None):
+    """RAG Step 3: Generate a grounded answer from both the user's original
+    query and the retrieved IR results.  Optionally receives the rewritten
+    retrieval query so the LLM understands how retrieval was performed."""
     if not results:
         return {
             "answer": "I couldn't find relevant results for that query in the current dataset.",
@@ -1653,6 +1709,12 @@ def synthesize_search_answer(query, results):
 
     client = LLMClient(api_key=api_key)
     context_text = build_result_context(results[:8])
+
+    # Build query section with both original and rewritten queries
+    query_section = f"User query: {query}"
+    if rewritten_query and rewritten_query.lower() != query.lower():
+        query_section += f"\nRewritten retrieval query used by the IR system: {rewritten_query}"
+
     messages = [
         {
             "role": "system",
@@ -1660,27 +1722,28 @@ def synthesize_search_answer(query, results):
                 "You are the recommendation assistant for SideQuest, an Ithaca activity search app. "
                 "Your job is to turn ranked search results into a short, trustworthy recommendation. "
                 "Use only the retrieved results provided in the context. Do not invent facts, dates, locations, prices, or availability that are not present in the results. "
-                "You may use or include details or discussion retrieved from results if they are present. "
                 "Treat higher-scored results as stronger matches, but do not claim certainty from score alone. "
-                "Prioritize the activities that best match the semantic intent of the user's query, and mention specific titles early."
+                "Prioritize the activities that best match the semantic intent of the user's query, and mention specific titles early. "
                 "Discard any retrieved results which are not semantically relevant to the user's query. "
                 "When helpful, compare 2-3 strong options and explain why they fit. "
                 "If important details are missing or the results are only loosely related, say that clearly. "
-                "Keep the tone helpful and concise."
+                "Keep the tone helpful and concise. "
                 "Return response in markdown formatting with short paragraphs and bullets."
             ),
         },
         {
             "role": "user",
             "content": (
-                f"User query: {query}\n\n"
+                f"{query_section}\n\n"
                 f"Retrieved results:\n{context_text}\n\n"
                 "Write a recommendation grounded in these results.\n"
                 "Requirements:\n"
-                "- Start with the best overall recommendation, using the exact title.\n"
+                "- Write naturally and conversationally. Cite sources seamlessly (e.g., 'Cafe Dewitt is a great option').\n"
+                "- Start with the best overall recommendation.\n"
                 "- Briefly explain why it matches the query using only details from the results.\n"
+                "- If multiple results refer to the exact same physical facility or building (e.g., 'Noyes' and 'Noyes Basketball Court'), aggregate them into a single recommendation.\n"
                 "- If there are useful alternatives, mention at most two additional options.\n"
-                "- Mention logistics like location, time, organization, or URL only when they are present and relevant.\n"
+                "- Mention logistics like location, time, or URL only when they are present and relevant.\n"
                 "- Do not mention items that are not in the retrieved results.\n"
                 "- If the results are mixed or weak, say that and suggest the closest matches instead.\n"
                 "- Keep the answer to one short paragraph."
@@ -1714,6 +1777,7 @@ def synthesize_search_answer(query, results):
 @app.get("/api/search")
 def api_search():
     query = request.args.get("q", "").strip()
+    raw_query = request.args.get("raw_q", "").strip() or query
     source = request.args.get("source", "all").strip().lower()
     mode = request.args.get("mode", "svd").strip().lower()
     top_k_raw = request.args.get("top_k", "10")
@@ -1749,6 +1813,7 @@ def api_search():
     if not query:
         return jsonify({
             "query": "",
+            "rewritten_query": None,
             "source": source,
             "mode": mode,
             "count": 0,
@@ -1756,8 +1821,21 @@ def api_search():
             "message": "Pass a query with ?q=your+query"
         }), 400
 
+    # P05 RAG: Reformulate the raw user query (without filter terms),
+    # then merge rewritten keywords with filter context for IR.
+    search_query = query
+    rewritten_query = None
+    if include_summary:
+        rewritten_query = reformulate_query_for_ir(raw_query)
+        if rewritten_query and rewritten_query.lower() != raw_query.lower():
+            # Preserve any filter-context terms the frontend appended
+            filter_context = query.replace(raw_query, "", 1).strip()
+            search_query = f"{rewritten_query} {filter_context}".strip()
+        else:
+            rewritten_query = None  # No meaningful rewrite happened
+
     results, query_profile, effective_mode = search_documents(
-        query,
+        search_query,
         top_k=top_k,
         source=source,
         mode=mode,
@@ -1768,10 +1846,11 @@ def api_search():
 
     synthesis = {"answer": None, "warning": None}
     if include_summary:
-        synthesis = synthesize_search_answer(query, results)
+        synthesis = synthesize_search_answer(raw_query, results, rewritten_query=rewritten_query)
 
     return jsonify({
         "query": query,
+        "rewritten_query": rewritten_query,
         "source": source,
         "requested_mode": mode,
         "effective_mode": effective_mode,
