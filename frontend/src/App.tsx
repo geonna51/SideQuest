@@ -608,7 +608,7 @@ function App(): JSX.Element {
             </div>
 
             {hasSynthesisAnswer && (
-              <div className="episode-desc synthesis-copy">
+              <div className="synthesis-copy">
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   components={{
@@ -699,7 +699,6 @@ function App(): JSX.Element {
             <div className="results-toolbar">
               <div className="results-toolbar-copy">
                 <p className="results-count">{sortedResults.length} results</p>
-                <p className="results-subtitle">Cards expand into multiple columns when space is available.</p>
               </div>
               <div className="sort-row">
                 <label htmlFor="sort-select" className="filter-label">Sort by</label>
