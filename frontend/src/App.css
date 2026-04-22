@@ -74,6 +74,162 @@
   color: var(--cornell-red);
 }
 
+.page-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 1.25rem 0;
+  padding: 10px;
+  border-radius: 999px;
+  background: rgba(255, 253, 251, 0.9);
+  border: 1px solid rgba(232, 202, 202, 0.82);
+  box-shadow: 0 18px 38px -32px var(--cornell-shadow);
+}
+
+.page-nav-button {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--cornell-ink-soft);
+  padding: 10px 18px;
+  border-radius: 999px;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.page-nav-button:hover {
+  color: var(--cornell-red-deep);
+  background: rgba(179, 27, 27, 0.08);
+}
+
+.page-nav-button.active {
+  color: #ffffff;
+  background: linear-gradient(135deg, var(--cornell-red) 0%, var(--cornell-red-deep) 100%);
+  box-shadow: 0 16px 28px -22px rgba(122, 18, 18, 0.8);
+}
+
+.page-nav-button:focus-visible {
+  outline: 2px solid var(--cornell-red);
+  outline-offset: 2px;
+}
+
+.about-page {
+  width: min(1320px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding-bottom: 2.5rem;
+}
+
+.about-hero-card,
+.about-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--cornell-border);
+  border-radius: 22px;
+  background: linear-gradient(135deg, rgba(255, 251, 249, 0.98) 0%, rgba(250, 242, 242, 0.98) 52%, rgba(255, 253, 251, 0.98) 100%);
+  box-shadow: 0 26px 54px -40px var(--cornell-shadow-strong);
+}
+
+.about-hero-card {
+  padding: 30px 32px;
+}
+
+.about-card {
+  padding: 24px 24px 22px;
+}
+
+.about-hero-card::before,
+.about-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at top right, rgba(179, 27, 27, 0.12) 0%, rgba(179, 27, 27, 0) 30%);
+  pointer-events: none;
+}
+
+.about-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 18px;
+}
+
+.about-eyebrow {
+  margin: 0 0 0.55rem 0;
+  color: var(--cornell-red);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.about-title {
+  margin: 0;
+  color: var(--cornell-ink);
+  font-family: 'Kanit', sans-serif;
+  font-size: clamp(2rem, 4vw, 3.1rem);
+  line-height: 1.02;
+  max-width: 18ch;
+}
+
+.about-lead {
+  margin: 1rem 0 0 0;
+  max-width: 72ch;
+  color: var(--cornell-ink-soft);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 1.02rem;
+  line-height: 1.7;
+}
+
+.about-card-title {
+  margin: 0 0 0.9rem 0;
+  color: var(--cornell-ink);
+  font-family: 'Kanit', sans-serif;
+  font-size: 1.3rem;
+  line-height: 1.15;
+}
+
+.about-card-copy {
+  margin: 0.8rem 0 0 0;
+  color: var(--cornell-ink-soft);
+  font-family: 'Montserrat', sans-serif;
+  line-height: 1.65;
+}
+
+.about-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--cornell-ink-soft);
+  font-family: 'Montserrat', sans-serif;
+  line-height: 1.65;
+}
+
+.about-list li + li {
+  margin-top: 0.55rem;
+}
+
+.about-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.about-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(179, 27, 27, 0.08);
+  border: 1px solid var(--cornell-rose);
+  color: var(--cornell-red-deep);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
 /* ── Search bar ────────────────────────────────────────────────────────────── */
 
 .input-box {
@@ -984,6 +1140,25 @@
 }
 
 @media (max-width: 768px) {
+  .top-text {
+    width: calc(100vw - 24px);
+    margin-top: 3.5vh;
+  }
+
+  .logo-container {
+    padding: 14px 18px;
+  }
+
+  .sidequest-title {
+    font-size: 2.7rem;
+  }
+
+  .page-nav {
+    width: 100%;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
   .input-box {
     width: calc(100vw - 32px);
     max-width: none;
@@ -1026,6 +1201,16 @@
 
   .synthesis-header {
     flex-direction: column;
+  }
+
+  .about-page {
+    width: 100%;
+  }
+
+  .about-hero-card,
+  .about-card {
+    padding-left: 20px;
+    padding-right: 20px;
   }
 }
 

@@ -5,6 +5,8 @@ import './App.css'
 import SearchIcon from './assets/mag.png'
 import BearLogo from './assets/sidequest_bear_logo.png'
 
+type AppPage = 'search' | 'about'
+
 const TIME_OPTIONS = [
   { value: 'any', label: 'Any time', queryTerms: '' },
   { value: 'today', label: 'Today', queryTerms: 'today happening now current event open today' },
@@ -84,7 +86,13 @@ type SearchResult = {
   matched_dimensions?: LatentDimension[]
 }
 
+const getCurrentPage = (): AppPage => {
+  const hash = window.location.hash.replace(/^#/, '')
+  return hash === '/about' ? 'about' : 'search'
+}
+
 function App(): JSX.Element {
+  const [page, setPage] = useState<AppPage>(getCurrentPage)
   const [searchInput, setSearchInput] = useState<string>('')
   const [searchTerm, setSearchTerm] = useState<string>('')
   const [source, setSource] = useState<string>('all')
@@ -114,11 +122,36 @@ function App(): JSX.Element {
   const hasSynthesisAnswer = answer.trim() !== ''
   const hasSynthesisWarning = answerWarning.trim() !== ''
 
+  const navigateToPage = (nextPage: AppPage): void => {
+    if (nextPage === page) {
+      return
+    }
+
+    const nextHash = nextPage === 'about' ? '#/about' : '#/'
+    window.location.hash = nextHash
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSelectedResult(null) }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      setPage(getCurrentPage())
+    }
+
+    window.addEventListener('hashchange', handleHashChange)
+    return () => window.removeEventListener('hashchange', handleHashChange)
+  }, [])
+
+  useEffect(() => {
+    if (page === 'about') {
+      setSelectedResult(null)
+    }
+  }, [page])
 
   // Mirrors backend parse_event_date: extracts "20 January 2026" from freeform strings
   const parseStartTime = (str: string): number => {
@@ -196,6 +229,10 @@ function App(): JSX.Element {
 
   // Sync URL whenever search state changes
   useEffect(() => {
+    if (page !== 'search') {
+      return
+    }
+
     const params = new URLSearchParams()
     if (searchTerm) params.set('q', searchTerm)
     if (source !== 'all') params.set('source', source)
@@ -209,7 +246,7 @@ function App(): JSX.Element {
     if (dateTo) params.set('date_to', dateTo)
     const qs = params.toString()
     window.history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname)
-  }, [searchTerm, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, includeReddit, dateFrom, dateTo])
+  }, [page, searchTerm, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, includeReddit, dateFrom, dateTo])
 
   const buildAugmentedQuery = (
     baseQuery: string,
@@ -410,6 +447,240 @@ function App(): JSX.Element {
       : 'This query stayed within the hybrid system, but the ranking fell back to lexical matching because semantic reranking was not reliable for this query.'
     : null
 
+  const searchPageContent = (
+    <>
+      <div className="input-box">
+        <img src={SearchIcon} alt="search" />
+        <input
+          id="search-input"
+          placeholder="Search for things to do in Ithaca..."
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              void handleSearch(searchInput)
+            }
+          }}
+        />
+      </div>
+      <div className="search-input-hint" aria-live="polite">
+        <span className="search-input-hint-text">Type your search, then press</span>
+        <kbd className="search-input-kbd">Enter</kbd>
+        <span className="search-input-hint-text">to load results and generate the summary</span>
+      </div>
+
+      <section className="search-controls-card" aria-label="Search filters">
+        <div className="filter-control">
+          <label htmlFor="source-filter" className="filter-label">Category</label>
+            <select
+              id="source-filter"
+              className="filter-select"
+              value={source}
+              onChange={(e) => setSource(e.target.value)}
+            >
+            <option value="all">All categories</option>
+            <option value="events">Events & Activities</option>
+            <option value="places">Interesting Places</option>
+            <option value="food">Food & Dining</option>
+            <option value="outdoors">Outdoors & Trails</option>
+            <option value="fitness">Fitness & Rec</option>
+          </select>
+        </div>
+
+        <div className="filter-grid">
+          <div className="filter-control">
+            <label htmlFor="time-filter" className="filter-label">When</label>
+            <select
+              id="time-filter"
+              className="filter-select"
+              value={timeFilter}
+              onChange={(e) => {
+                setTimeFilter(e.target.value)
+              }}
+            >
+              {TIME_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="filter-control">
+            <label htmlFor="area-filter" className="filter-label">Area</label>
+            <select
+              id="area-filter"
+              className="filter-select"
+              value={areaFilter}
+              onChange={(e) => {
+                setAreaFilter(e.target.value)
+              }}
+            >
+              {AREA_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="filter-control">
+            <label htmlFor="intent-filter" className="filter-label">Intent</label>
+            <select
+              id="intent-filter"
+              className="filter-select"
+              value={intentFilter}
+              onChange={(e) => {
+                setIntentFilter(e.target.value)
+              }}
+            >
+              {INTENT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="filter-toggle-row">
+          <label className="filter-toggle-label">
+            <input
+              type="checkbox"
+              checked={futureOnly}
+              onChange={(e) => {
+                setFutureOnly(e.target.checked)
+              }}
+            />
+            Upcoming events only
+          </label>
+        </div>
+
+        <div className="filter-date-row">
+          <div className="filter-control">
+            <label htmlFor="date-from" className="filter-label">From</label>
+            <input
+              id="date-from"
+              type="date"
+              className="filter-select"
+              value={dateFrom}
+              onChange={(e) => {
+                setDateFrom(e.target.value)
+              }}
+            />
+          </div>
+          <div className="filter-control">
+            <label htmlFor="date-to" className="filter-label">To</label>
+            <input
+              id="date-to"
+              type="date"
+              className="filter-select"
+              value={dateTo}
+              onChange={(e) => {
+                setDateTo(e.target.value)
+              }}
+            />
+          </div>
+          {(dateFrom || dateTo) && (
+            <button
+              type="button"
+              className="date-clear-button"
+              onClick={() => {
+                setDateFrom('')
+                setDateTo('')
+              }}
+            >
+              Clear dates
+            </button>
+          )}
+        </div>
+
+        <div className="filter-actions-row">
+          <button
+            type="button"
+            className="clear-filters-button"
+            onClick={clearFilters}
+          >
+            Clear all filters
+          </button>
+        </div>
+
+        <fieldset className="filter-mode-group">
+          <legend className="filter-label">Ranking mode</legend>
+          <div className="mode-toggle-row" role="radiogroup" aria-label="Search ranking mode">
+            <button
+              type="button"
+              className={`mode-toggle-button ${searchMode === 'svd' ? 'active' : ''}`}
+              aria-pressed={searchMode === 'svd'}
+              onClick={() => setSearchMode('svd')}
+            >
+              <span className="mode-toggle-title">Hybrid SVD Search</span>
+              <span className="mode-toggle-subtitle">Latent semantic ranking with TF-IDF fallback</span>
+            </button>
+            <button
+              type="button"
+              className={`mode-toggle-button ${searchMode === 'tfidf' ? 'active' : ''}`}
+              aria-pressed={searchMode === 'tfidf'}
+              onClick={() => setSearchMode('tfidf')}
+            >
+              <span className="mode-toggle-title">TF-IDF Baseline</span>
+              <span className="mode-toggle-subtitle">Exact lexical matching</span>
+            </button>
+          </div>
+        </fieldset>
+      </section>
+    </>
+  )
+
+  const aboutPageContent = (
+    <section className="about-page" aria-labelledby="about-title">
+      <div className="about-hero-card">
+        <p className="about-eyebrow">About SideQuest</p>
+        <h2 id="about-title" className="about-title">A hybrid discovery engine for things to do around Cornell and Ithaca</h2>
+        <p className="about-lead">
+          SideQuest helps students find events, study spots, food, outdoor activities, and local places using a hybrid retrieval system that combines lexical search, SVD-based semantic signals, and an LLM synthesis layer.
+        </p>
+      </div>
+
+      <div className="about-grid">
+        <article className="about-card">
+          <h3 className="about-card-title">How to use it</h3>
+          <ul className="about-list">
+            <li>Type a query like "quiet study spots", "cheap dinner in Collegetown", or "things to do this weekend".</li>
+            <li>Press <strong>Enter</strong> to run retrieval and generate the summary card.</li>
+            <li>Use the filters to narrow results by category, time, area, vibe, and date range.</li>
+            <li>Open a result card to read the full description, hours, reviews, and links when available.</li>
+          </ul>
+        </article>
+
+        <article className="about-card">
+          <h3 className="about-card-title">How ranking works</h3>
+          <ul className="about-list">
+            <li><strong>Hybrid SVD Search</strong> blends lexical retrieval with latent semantic reranking, which helps surface conceptually related results.</li>
+            <li><strong>TF-IDF Baseline</strong> uses exact lexical similarity and is useful as a transparent comparison mode.</li>
+            <li>The RAG layer can rewrite vague queries to add useful context, while the system still preserves the original query signal for ranking.</li>
+          </ul>
+        </article>
+
+        <article className="about-card">
+          <h3 className="about-card-title">What the summary means</h3>
+          <p className="about-card-copy">
+            The LLM synthesis card is grounded in retrieved results. It appears separately from the search results so you can start browsing immediately while the summary is still being generated.
+          </p>
+          <p className="about-card-copy">
+            If no summary appears, retrieval can still work normally and you can inspect the result cards directly.
+          </p>
+        </article>
+
+        <article className="about-card">
+          <h3 className="about-card-title">Good example searches</h3>
+          <div className="about-chip-row">
+            <span className="about-chip">study spots</span>
+            <span className="about-chip">late night food</span>
+            <span className="about-chip">weekend activities</span>
+            <span className="about-chip">quiet cafes</span>
+            <span className="about-chip">outdoor hikes</span>
+            <span className="about-chip">cheap eats in Collegetown</span>
+          </div>
+        </article>
+      </div>
+    </section>
+  )
+
   return (
     <div className="full-body-container">
       <div className="top-text">
@@ -417,183 +688,29 @@ function App(): JSX.Element {
           <img src={BearLogo} alt="Cornell Bear Quest Logo" style={{ height: '72px', width: 'auto', mixBlendMode: 'multiply' }} />
           <h1 className="sidequest-title">Side<span>Quest</span></h1>
         </div>
+        <nav className="page-nav" aria-label="Primary">
+          <button
+            type="button"
+            className={`page-nav-button ${page === 'search' ? 'active' : ''}`}
+            aria-pressed={page === 'search'}
+            onClick={() => navigateToPage('search')}
+          >
+            Search
+          </button>
+          <button
+            type="button"
+            className={`page-nav-button ${page === 'about' ? 'active' : ''}`}
+            aria-pressed={page === 'about'}
+            onClick={() => navigateToPage('about')}
+          >
+            About / Help
+          </button>
+        </nav>
 
-        <div className="input-box">
-          <img src={SearchIcon} alt="search" />
-          <input
-            id="search-input"
-            placeholder="Search for things to do in Ithaca..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                void handleSearch(searchInput)
-              }
-            }}
-          />
-        </div>
-        <div className="search-input-hint" aria-live="polite">
-          <span className="search-input-hint-text">Type your search, then press</span>
-          <kbd className="search-input-kbd">Enter</kbd>
-          <span className="search-input-hint-text">to load results and generate the summary</span>
-        </div>
-
-        <section className="search-controls-card" aria-label="Search filters">
-          <div className="filter-control">
-            <label htmlFor="source-filter" className="filter-label">Category</label>
-              <select
-                id="source-filter"
-                className="filter-select"
-                value={source}
-                onChange={(e) => setSource(e.target.value)}
-              >
-              <option value="all">All categories</option>
-              <option value="events">Events & Activities</option>
-              <option value="places">Interesting Places</option>
-              <option value="food">Food & Dining</option>
-              <option value="outdoors">Outdoors & Trails</option>
-              <option value="fitness">Fitness & Rec</option>
-            </select>
-          </div>
-
-          <div className="filter-grid">
-            <div className="filter-control">
-              <label htmlFor="time-filter" className="filter-label">When</label>
-              <select
-                id="time-filter"
-                className="filter-select"
-                value={timeFilter}
-                onChange={(e) => {
-                  setTimeFilter(e.target.value)
-                }}
-              >
-                {TIME_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="filter-control">
-              <label htmlFor="area-filter" className="filter-label">Area</label>
-              <select
-                id="area-filter"
-                className="filter-select"
-                value={areaFilter}
-                onChange={(e) => {
-                  setAreaFilter(e.target.value)
-                }}
-              >
-                {AREA_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="filter-control">
-              <label htmlFor="intent-filter" className="filter-label">Intent</label>
-              <select
-                id="intent-filter"
-                className="filter-select"
-                value={intentFilter}
-                onChange={(e) => {
-                  setIntentFilter(e.target.value)
-                }}
-              >
-                {INTENT_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="filter-toggle-row">
-            <label className="filter-toggle-label">
-              <input
-                type="checkbox"
-                checked={futureOnly}
-                onChange={(e) => {
-                  setFutureOnly(e.target.checked)
-                }}
-              />
-              Upcoming events only
-            </label>
-          </div>
-
-          <div className="filter-date-row">
-            <div className="filter-control">
-              <label htmlFor="date-from" className="filter-label">From</label>
-              <input
-                id="date-from"
-                type="date"
-                className="filter-select"
-                value={dateFrom}
-                onChange={(e) => {
-                  setDateFrom(e.target.value)
-                }}
-              />
-            </div>
-            <div className="filter-control">
-              <label htmlFor="date-to" className="filter-label">To</label>
-              <input
-                id="date-to"
-                type="date"
-                className="filter-select"
-                value={dateTo}
-                onChange={(e) => {
-                  setDateTo(e.target.value)
-                }}
-              />
-            </div>
-            {(dateFrom || dateTo) && (
-              <button
-                type="button"
-                className="date-clear-button"
-                onClick={() => {
-                  setDateFrom('')
-                  setDateTo('')
-                }}
-              >
-                Clear dates
-              </button>
-            )}
-          </div>
-
-          <div className="filter-actions-row">
-            <button
-              type="button"
-              className="clear-filters-button"
-              onClick={clearFilters}
-            >
-              Clear all filters
-            </button>
-          </div>
-
-          <fieldset className="filter-mode-group">
-            <legend className="filter-label">Ranking mode</legend>
-            <div className="mode-toggle-row" role="radiogroup" aria-label="Search ranking mode">
-              <button
-                type="button"
-                className={`mode-toggle-button ${searchMode === 'svd' ? 'active' : ''}`}
-                aria-pressed={searchMode === 'svd'}
-                onClick={() => setSearchMode('svd')}
-              >
-                <span className="mode-toggle-title">Hybrid SVD Search</span>
-                <span className="mode-toggle-subtitle">Latent semantic ranking with TF-IDF fallback</span>
-              </button>
-              <button
-                type="button"
-                className={`mode-toggle-button ${searchMode === 'tfidf' ? 'active' : ''}`}
-                aria-pressed={searchMode === 'tfidf'}
-                onClick={() => setSearchMode('tfidf')}
-              >
-                <span className="mode-toggle-title">TF-IDF Baseline</span>
-                <span className="mode-toggle-subtitle">Exact lexical matching</span>
-              </button>
-            </div>
-          </fieldset>
-        </section>
+        {page === 'search' ? searchPageContent : aboutPageContent}
       </div>
 
+      {page === 'search' && (
       <div id="answer-box">
         {loading && (
           <p className="status-message loading-pulse">
@@ -839,8 +956,9 @@ function App(): JSX.Element {
           </section>
         )}
       </div>
+      )}
 
-      {selectedResult && (
+      {page === 'search' && selectedResult && (
         <div className="modal-backdrop" onClick={() => setSelectedResult(null)}>
           <div className="modal-panel" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <button className="modal-close" onClick={() => setSelectedResult(null)} aria-label="Close">✕</button>
