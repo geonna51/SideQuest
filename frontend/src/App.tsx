@@ -238,10 +238,9 @@ function App(): JSX.Element {
     setAnswer('')
     setAnswerWarning('')
 
+    setLoading(true)
     if (includeSummary) {
       setSummaryLoading(true)
-    } else {
-      setLoading(true)
     }
 
     try {
@@ -270,10 +269,9 @@ function App(): JSX.Element {
       setQueryLatentProfile({ positive: [], negative: [] })
       setRetrievalContext(labels)
     } finally {
+      setLoading(false)
       if (includeSummary) {
         setSummaryLoading(false)
-      } else {
-        setLoading(false)
       }
     }
   }
@@ -303,10 +301,6 @@ function App(): JSX.Element {
     )
   }
 
-  const handleSummarySubmit = async (): Promise<void> => {
-    await runSearch(searchTerm, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, dateFrom, dateTo, true)
-  }
-
   useEffect(() => {
     const trimmedInput = searchInput.trim()
 
@@ -324,7 +318,7 @@ function App(): JSX.Element {
     }
 
     const timeoutId = window.setTimeout(() => {
-      void runSearch(trimmedInput, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, dateFrom, dateTo, false)
+      void runSearch(trimmedInput, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, dateFrom, dateTo, true)
     }, 300)
 
     return () => window.clearTimeout(timeoutId)
@@ -552,24 +546,6 @@ function App(): JSX.Element {
                 <p className="synthesis-empty-hint">{answerWarning}</p>
               </div>
             )}
-
-            {!hasSynthesisAnswer && !hasSynthesisWarning && (
-              <div className="synthesis-empty-state">
-                <p className="synthesis-empty-title">Generate a summary when you are ready.</p>
-                <p className="synthesis-empty-copy">
-                  Press the "summary" button to synthesize search results.
-                </p>
-              </div>
-            )}
-
-            <button
-              type="button"
-              className="summary-trigger-button"
-              onClick={() => void handleSummarySubmit()}
-              disabled={loading || summaryLoading || results.length === 0}
-            >
-              {summaryLoading ? 'Generating...' : 'Generate LLM Summary'}
-            </button>
 
             {retrievalContext.length > 0 && (
               <div className="context-chip-bar" aria-label="Active retrieval context">

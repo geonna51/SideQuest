@@ -80,7 +80,6 @@ id,osm_type,lon,lat,name,category,subcategory,address,website
 977010239,node,-76.4642215,42.4377361,P&C Fresh,shop,supermarket,315 Pine Tree Road,
 977202200,node,-76.4876165,42.4421961,Sangam,amenity,restaurant,424 Eddy Street,https://sangamindianrestaurantithaca.com/
 977202978,node,-76.4854725,42.4422537,Collegetown Bagels,amenity,fast_food,420 College Avenue,https://www.collegetownbagels.com/
-977203388,node,-76.4862265,42.4415095,Ned's Pizza,amenity,restaurant,139 Dryden Road,
 977212085,node,-76.4972057,42.4406962,Hilton Garden Inn,tourism,hotel,120 East Seneca Street,https://www.hilton.com/en/hotels/ithiggi-hilton-garden-inn-ithaca/
 1042172692,node,-76.510393,42.439756,,amenity,bicycle_parking,,
 1042172700,node,-76.5080064,42.4453354,710 Hancock,amenity,bicycle_parking,,
@@ -293,7 +292,7 @@ id,osm_type,lon,lat,name,category,subcategory,address,website
 3509359375,node,-76.5039625,42.4609719,,leisure,playground,,
 3509359384,node,-76.5037728,42.4619548,,amenity,toilets,,
 3520036175,node,-76.4975856,42.4386061,Green Street Station,highway,bus_stop,,
-3676942517,node,-76.4784193,42.4696127,Ned's Pizza,amenity,restaurant,,
+3676942517,node,-76.4784193,42.4696127,Ned's Pizza,amenity,restaurant,840 Hanshaw Road Suite 3,https://www.nedspizzany.com
 3683053646,node,-76.5005658,42.4395892,Capital Corner,amenity,fast_food,140 West State Street,
 3758970266,node,-76.4974906,42.4394497,Yellow Deli,amenity,cafe,143 Ithaca Commons;East State Street,https://yellowdeli.com/ithaca-ny
 3758974058,node,-76.4972998,42.4394308,Community Room,amenity,community_centre,,

@@ -649,6 +649,18 @@ def build_search_index():
     docs.extend(load_generic_csv_documents(trails_csv_path, "trails"))
     docs.extend(load_generic_csv_documents(dining_csv_path, "dining"))
 
+    # Enrich OSM/dining search text with Google Places review content so review
+    # keywords (cuisine terms, atmosphere, etc.) are factored into ranking
+    for doc in docs:
+        if doc["source"] not in {"osm", "dining"}:
+            continue
+        places_data = get_places_data(doc["id"])
+        if not places_data:
+            continue
+        review_texts = " ".join(r.get("text", "") for r in (places_data.get("reviews") or []))
+        if review_texts:
+            doc["search_text"] = doc["search_text"] + " " + review_texts
+
     # Pass docs through standard preprocessing pipeline
     processed = preprocessing.process_documents(docs)
     deduped = processed["docs"]
@@ -979,6 +991,15 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
             # Prefer Places API website over OSM website when present
             if places_data.get("website") and not result.get("url"):
                 result["url"] = places_data["website"]
+            # Adjust score based on Google rating: ±0.05 max, weighted by review count confidence
+            rating = places_data.get("rating")
+            rating_count = places_data.get("rating_count", 0)
+            if rating and rating_count and rating_count >= 5:
+                confidence = min(rating_count, 100) / 100.0
+                rating_bonus = (rating - 3.0) / 2.0 * 0.05 * confidence
+                result["score"] = round(result["score"] + rating_bonus, 6)
+
+    top_structured.sort(key=lambda x: x["score"], reverse=True)
 
     return top_structured, query_profile, ("svd" if use_svd else "tfidf")
 
