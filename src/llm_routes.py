@@ -11,11 +11,7 @@ import os
 import re
 import logging
 from flask import request, jsonify, Response, stream_with_context
-
-try:
-    from infosci_spark_client import LLMClient
-except ImportError:  # Optional in environments without the private package.
-    LLMClient = None
+from infosci_spark_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +56,6 @@ def register_chat_route(app, json_search):
         api_key = os.getenv("API_KEY")
         if not api_key:
             return jsonify({"error": "API_KEY not set — add it to your .env file"}), 500
-        if LLMClient is None:
-            return jsonify({"error": "infosci_spark_client is not installed in this environment"}), 500
 
         client = LLMClient(api_key=api_key)
         use_search, search_term = llm_search_decision(client, user_message)
