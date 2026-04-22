@@ -1704,7 +1704,7 @@ def synthesize_search_answer(query, results, rewritten_query=None):
     if not api_key:
         return {
             "answer": format_non_llm_summary(query, results),
-            "warning": "LLM synthesis is unavailable because API_KEY is not set. Showing a rules-based summary instead.",
+            "warning": "LLM synthesis is unavailable because SPARK_API_KEY is not set. Showing a rules-based summary instead.",
         }
 
     client = LLMClient(api_key=api_key)
