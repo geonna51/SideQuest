@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import './App.css'
@@ -108,6 +108,7 @@ function App(): JSX.Element {
   const [sortBy, setSortBy] = useState<'score' | 'date_asc' | 'date_desc'>('score')
   const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null)
   const [rewrittenQuery, setRewrittenQuery] = useState<string | null>(null)
+  const activeSearchRequestRef = useRef<number>(0)
   const hasSynthesisAnswer = answer.trim() !== ''
   const hasSynthesisWarning = answerWarning.trim() !== ''
 
@@ -217,9 +218,11 @@ function App(): JSX.Element {
     selectedFutureOnly: boolean = futureOnly,
     selectedDateFrom: string = dateFrom,
     selectedDateTo: string = dateTo,
-    includeSummary: boolean = false
-  ): Promise<void> => {
+    includeSummary: boolean = false,
+    requestId: number = activeSearchRequestRef.current
+  ): Promise<boolean> => {
     if (value.trim() === '') {
+      activeSearchRequestRef.current += 1
       setSearchTerm('')
       setResults([])
       setVisibleCount(10)
@@ -228,21 +231,23 @@ function App(): JSX.Element {
       setQueryLatentProfile({ positive: [], negative: [] })
       setRetrievalContext([])
       setError('')
-      return
+      setLoading(false)
+      setSummaryLoading(false)
+      return false
     }
 
     const { composedQuery, labels } = buildAugmentedQuery(value, selectedTime, selectedArea, selectedIntent)
-    setVisibleCount(10)
-    setSearchTerm(value.trim())
-    setError('')
-    setRetrievalContext(labels)
-    setAnswer('')
-    setAnswerWarning('')
-    setRewrittenQuery(null)
-
-    setLoading(true)
     if (includeSummary) {
       setSummaryLoading(true)
+    } else {
+      setVisibleCount(10)
+      setSearchTerm(value.trim())
+      setError('')
+      setRetrievalContext(labels)
+      setAnswer('')
+      setAnswerWarning('')
+      setRewrittenQuery(null)
+      setLoading(true)
     }
 
     try {
@@ -257,25 +262,47 @@ function App(): JSX.Element {
       }
 
       const data = await response.json()
-      setResults(data.results ?? [])
-      setAnswer(data.answer ?? '')
-      setAnswerWarning(data.answer_warning ?? '')
-      setQueryLatentProfile(data.query_latent_profile ?? { positive: [], negative: [] })
-      setEffectiveMode(data.effective_mode ?? selectedMode)
-      setRewrittenQuery(data.rewritten_query ?? null)
+      if (requestId !== activeSearchRequestRef.current) {
+        return false
+      }
+
+      if (includeSummary) {
+        setAnswer(data.answer ?? '')
+        setAnswerWarning(data.answer_warning ?? '')
+        setRewrittenQuery(data.rewritten_query ?? null)
+      } else {
+        setResults(data.results ?? [])
+        setAnswerWarning('')
+        setQueryLatentProfile(data.query_latent_profile ?? { positive: [], negative: [] })
+        setEffectiveMode(data.effective_mode ?? selectedMode)
+        setRewrittenQuery(data.rewritten_query ?? null)
+      }
+      return true
     } catch (err) {
       console.error(err)
-      setError('Failed to load search results.')
-      setResults([])
-      setAnswer('')
-      setAnswerWarning('')
-      setRewrittenQuery(null)
-      setQueryLatentProfile({ positive: [], negative: [] })
-      setRetrievalContext(labels)
+      if (requestId !== activeSearchRequestRef.current) {
+        return false
+      }
+
+      if (includeSummary) {
+        setAnswer('')
+        setAnswerWarning('Failed to load the LLM summary.')
+        setRewrittenQuery(null)
+      } else {
+        setError('Failed to load search results.')
+        setResults([])
+        setAnswer('')
+        setAnswerWarning('')
+        setRewrittenQuery(null)
+        setQueryLatentProfile({ positive: [], negative: [] })
+        setRetrievalContext(labels)
+      }
+      return false
     } finally {
-      setLoading(false)
       if (includeSummary) {
         setSummaryLoading(false)
+      } else {
+        setLoading(false)
       }
     }
   }
@@ -291,7 +318,10 @@ function App(): JSX.Element {
     selectedDateFrom: string = dateFrom,
     selectedDateTo: string = dateTo
   ): Promise<void> => {
-    await runSearch(
+    const requestId = activeSearchRequestRef.current + 1
+    activeSearchRequestRef.current = requestId
+
+    const retrievalSucceeded = await runSearch(
       value,
       selectedSource,
       selectedMode,
@@ -301,32 +331,51 @@ function App(): JSX.Element {
       selectedFutureOnly,
       selectedDateFrom,
       selectedDateTo,
-      false
+      false,
+      requestId
     )
-  }
 
-  useEffect(() => {
-    const trimmedInput = searchInput.trim()
-
-    if (trimmedInput === '') {
-      setSearchTerm('')
-      setResults([])
-      setVisibleCount(10)
-      setAnswer('')
-      setAnswerWarning('')
-      setQueryLatentProfile({ positive: [], negative: [] })
-      setRetrievalContext([])
-      setError('')
-      setLoading(false)
+    if (!retrievalSucceeded || requestId !== activeSearchRequestRef.current) {
       return
     }
 
-    const timeoutId = window.setTimeout(() => {
-      void runSearch(trimmedInput, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, dateFrom, dateTo, true)
-    }, 300)
+    void runSearch(
+      value,
+      selectedSource,
+      selectedMode,
+      selectedTime,
+      selectedArea,
+      selectedIntent,
+      selectedFutureOnly,
+      selectedDateFrom,
+      selectedDateTo,
+      true,
+      requestId
+    )
+  }
 
-    return () => window.clearTimeout(timeoutId)
-  }, [searchInput, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, dateFrom, dateTo])
+  const clearFilters = (): void => {
+    setSource('all')
+    setSearchMode('svd')
+    setTimeFilter('any')
+    setAreaFilter('any')
+    setIntentFilter('any')
+    setFutureOnly(true)
+    setDateFrom('')
+    setDateTo('')
+  }
+
+  const rankingModeLabel = searchMode === 'svd'
+    ? effectiveMode === 'svd'
+      ? 'Hybrid retrieval with latent semantic reranking'
+      : 'Hybrid retrieval with lexical fallback for this query'
+    : 'TF-IDF lexical baseline'
+
+  const rankingModeNote = searchMode === 'svd'
+    ? effectiveMode === 'svd'
+      ? 'This query used lexical retrieval plus latent semantic reranking. Community snippets from Reddit are matched separately by keyword overlap and shown alongside results.'
+      : 'This query stayed within the hybrid system, but the ranking fell back to lexical matching because semantic reranking was not reliable for this query.'
+    : null
 
   return (
     <div className="full-body-container">
@@ -343,7 +392,17 @@ function App(): JSX.Element {
             placeholder="Search for things to do in Ithaca..."
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                void handleSearch(searchInput)
+              }
+            }}
           />
+        </div>
+        <div className="search-input-hint" aria-live="polite">
+          <span className="search-input-hint-text">Type your search, then press</span>
+          <kbd className="search-input-kbd">Enter</kbd>
+          <span className="search-input-hint-text">to load results and generate the summary</span>
         </div>
 
         <section className="search-controls-card" aria-label="Search filters">
@@ -420,11 +479,7 @@ function App(): JSX.Element {
                 type="checkbox"
                 checked={futureOnly}
                 onChange={(e) => {
-                  const next = e.target.checked
-                  setFutureOnly(next)
-                  if (searchTerm.trim() !== '') {
-                    void handleSearch(searchTerm, source, searchMode, timeFilter, areaFilter, intentFilter, next)
-                  }
+                  setFutureOnly(e.target.checked)
                 }}
               />
               Upcoming events only
@@ -440,11 +495,7 @@ function App(): JSX.Element {
                 className="filter-select"
                 value={dateFrom}
                 onChange={(e) => {
-                  const next = e.target.value
-                  setDateFrom(next)
-                  if (searchTerm.trim() !== '') {
-                    void handleSearch(searchTerm, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, next, dateTo)
-                  }
+                  setDateFrom(e.target.value)
                 }}
               />
             </div>
@@ -456,11 +507,7 @@ function App(): JSX.Element {
                 className="filter-select"
                 value={dateTo}
                 onChange={(e) => {
-                  const next = e.target.value
-                  setDateTo(next)
-                  if (searchTerm.trim() !== '') {
-                    void handleSearch(searchTerm, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, dateFrom, next)
-                  }
+                  setDateTo(e.target.value)
                 }}
               />
             </div>
@@ -471,14 +518,21 @@ function App(): JSX.Element {
                 onClick={() => {
                   setDateFrom('')
                   setDateTo('')
-                  if (searchTerm.trim() !== '') {
-                    void handleSearch(searchTerm, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, '', '')
-                  }
                 }}
               >
                 Clear dates
               </button>
             )}
+          </div>
+
+          <div className="filter-actions-row">
+            <button
+              type="button"
+              className="clear-filters-button"
+              onClick={clearFilters}
+            >
+              Clear all filters
+            </button>
           </div>
 
           <fieldset className="filter-mode-group">
@@ -490,8 +544,8 @@ function App(): JSX.Element {
                 aria-pressed={searchMode === 'svd'}
                 onClick={() => setSearchMode('svd')}
               >
-                <span className="mode-toggle-title">SVD Search</span>
-                <span className="mode-toggle-subtitle">Latent semantic ranking</span>
+                <span className="mode-toggle-title">Hybrid SVD Search</span>
+                <span className="mode-toggle-subtitle">Latent semantic ranking with TF-IDF fallback</span>
               </button>
               <button
                 type="button"
@@ -508,9 +562,9 @@ function App(): JSX.Element {
       </div>
 
       <div id="answer-box">
-        {(loading || summaryLoading) && (
+        {loading && (
           <p className="status-message loading-pulse">
-            {summaryLoading ? 'Generating recommendation summary...' : 'Searching the area...'}
+            Searching the area...
           </p>
         )}
         {error && <p className="status-message error-message">{error}</p>}
@@ -524,7 +578,7 @@ function App(): JSX.Element {
                 <br></br>
               </div>
               <span className={`synthesis-status-pill ${hasSynthesisAnswer ? 'ready' : 'offline'}`}>
-                {hasSynthesisAnswer ? 'Available' : 'On demand'}
+                {hasSynthesisAnswer ? 'Available' : summaryLoading ? 'Generating' : 'On demand'}
               </span>
             </div>
 
@@ -551,6 +605,15 @@ function App(): JSX.Element {
               </div>
             )}
 
+            {!hasSynthesisAnswer && !hasSynthesisWarning && summaryLoading && (
+              <div className="synthesis-empty-state">
+                <p className="synthesis-empty-title">Generating summary...</p>
+                <p className="synthesis-empty-copy">
+                  Retrieved results are ready below while the assistant writes a grounded recommendation.
+                </p>
+              </div>
+            )}
+
             {retrievalContext.length > 0 && (
               <div className="context-chip-bar" aria-label="Active retrieval context">
                 {retrievalContext.map((label) => (
@@ -569,10 +632,10 @@ function App(): JSX.Element {
               </div>
             )}
             <p className="mode-summary-label">
-              Search mode in use: <strong>{effectiveMode === 'svd' ? 'SVD latent retrieval' : 'TF-IDF lexical retrieval'}</strong>
+              Search mode in use: <strong>{rankingModeLabel}</strong>
             </p>
-            {effectiveMode === 'svd' && (
-              <p className="mode-summary-note">Community snippets from Reddit are matched separately by keyword overlap and shown alongside results.</p>
+            {rankingModeNote && (
+              <p className="mode-summary-note">{rankingModeNote}</p>
             )}
             {effectiveMode === 'svd' && (
               <div className="dimension-groups">
