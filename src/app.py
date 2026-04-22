@@ -1311,7 +1311,7 @@ def cosine_similarity(query_vec, query_norm, doc_vec, doc_norm):
     return dot_product_sparse(query_vec, doc_vec) / (query_norm * doc_norm)
 
 
-def keyword_fallback_search(query, top_k=10, allowed_sources=None, expanded_query=None):
+def keyword_fallback_search(query, top_k=10, allowed_sources=None, expanded_query=None, include_reddit=True):
     query_tokens = set(normalized_query_tokens(query, restrict_to_vocab=False))
     expanded_query_tokens = set(expand_query_tokens(list(query_tokens)))
     if expanded_query:
@@ -1324,6 +1324,8 @@ def keyword_fallback_search(query, top_k=10, allowed_sources=None, expanded_quer
 
     for doc in SEARCH_DOCS:
         source = doc.get("source")
+        if source == "reddit" and not include_reddit:
+            continue
         if allowed_sources and source not in allowed_sources and source != "reddit":
             continue
 
@@ -1417,7 +1419,7 @@ def keyword_fallback_search(query, top_k=10, allowed_sources=None, expanded_quer
     results.sort(key=lambda item: item["score"], reverse=True)
     return results[:top_k]
 
-def search_documents(query, top_k=10, source="all", mode="svd", future_only=True, date_from=None, date_to=None, original_query=None):
+def search_documents(query, top_k=10, source="all", mode="svd", future_only=True, date_from=None, date_to=None, original_query=None, include_reddit=True):
     query = query.strip()
     original_query = (original_query or query).strip()
     if not query or not SEARCH_DOCS:
@@ -1467,6 +1469,7 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
             top_k=top_k,
             allowed_sources=allowed_sources,
             expanded_query=query if query != original_query else None,
+            include_reddit=include_reddit
         )
         if fallback_results:
             return fallback_results, {"positive": [], "negative": []}, "keyword_fallback"
@@ -1518,6 +1521,8 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
         overlap_terms = query_terms.intersection(doc["_token_counts"].keys())
 
         if doc["source"] == "reddit":
+            if not include_reddit:
+                continue
             if lexical_score > 0:
                 reddit_results.append({
                     "id": doc["id"],
@@ -1674,22 +1679,23 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
 
     top_structured = structured_results[:top_k]
     
-    for s_res in top_structured:
-        best_reddit = None
-        best_r_score = 0
-        s_tokens = set(tokenize(s_res["title"] + " " + s_res["category"]))
-        
-        for r_res in reddit_results[:15]:
-            r_tokens = set(tokenize(r_res["title"] + " " + r_res["description"]))
-            overlap = len(s_tokens.intersection(r_tokens))
-            if overlap > best_r_score:
-                best_r_score = overlap
-                best_reddit = r_res
-                
-        if best_reddit and best_r_score >= 1:
-            snippet = best_reddit["description"]
-            s_res["reddit_snippet"] = f"Community mention: \"{snippet}\""
-            s_res["score"] = round(s_res["score"] + 0.05, 6)
+    if include_reddit:
+        for s_res in top_structured:
+            best_reddit = None
+            best_r_score = 0
+            s_tokens = set(tokenize(s_res["title"] + " " + s_res["category"]))
+            
+            for r_res in reddit_results[:15]:
+                r_tokens = set(tokenize(r_res["title"] + " " + r_res["description"]))
+                overlap = len(s_tokens.intersection(r_tokens))
+                if overlap > best_r_score:
+                    best_r_score = overlap
+                    best_reddit = r_res
+                    
+            if best_reddit and best_r_score >= 1:
+                snippet = best_reddit["description"]
+                s_res["reddit_snippet"] = f"Community mention: \"{snippet}\""
+                s_res["score"] = round(s_res["score"] + 0.05, 6)
 
     # Remove near-duplicate cards so users see diverse options.
     top_structured.sort(key=lambda x: x["score"], reverse=True)
@@ -1917,6 +1923,7 @@ def api_search():
     top_k_raw = request.args.get("top_k", "10")
     future_only = request.args.get("future_only", "true").strip().lower() != "false"
     include_summary = request.args.get("include_summary", "").strip().lower() in {"1", "true", "yes"}
+    include_reddit = request.args.get("reddit", "true").strip().lower() != "false"
 
     date_from = None
     date_to = None
@@ -1977,6 +1984,7 @@ def api_search():
         date_from=date_from,
         date_to=date_to,
         original_query=query,
+        include_reddit=include_reddit
     )
 
     synthesis = {"answer": None, "warning": None}

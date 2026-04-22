@@ -93,6 +93,7 @@ function App(): JSX.Element {
   const [areaFilter, setAreaFilter] = useState<string>('any')
   const [intentFilter, setIntentFilter] = useState<string>('any')
   const [futureOnly, setFutureOnly] = useState<boolean>(true)
+  const [includeReddit, setIncludeReddit] = useState<boolean>(true)
   const [dateFrom, setDateFrom] = useState<string>('')
   const [dateTo, setDateTo] = useState<string>('')
   const [results, setResults] = useState<SearchResult[]>([])
@@ -175,6 +176,7 @@ function App(): JSX.Element {
     const area = params.get('area') ?? 'any'
     const intent = params.get('intent') ?? 'any'
     const future = params.get('future_only') !== 'false'
+    const redditOpt = params.get('reddit') !== 'false'
     const from = params.get('date_from') ?? ''
     const to = params.get('date_to') ?? ''
 
@@ -184,6 +186,7 @@ function App(): JSX.Element {
     setAreaFilter(area)
     setIntentFilter(intent)
     setFutureOnly(future)
+    setIncludeReddit(redditOpt)
     setDateFrom(from)
     setDateTo(to)
 
@@ -201,11 +204,12 @@ function App(): JSX.Element {
     if (areaFilter !== 'any') params.set('area', areaFilter)
     if (intentFilter !== 'any') params.set('intent', intentFilter)
     if (!futureOnly) params.set('future_only', 'false')
+    if (!includeReddit) params.set('reddit', 'false')
     if (dateFrom) params.set('date_from', dateFrom)
     if (dateTo) params.set('date_to', dateTo)
     const qs = params.toString()
     window.history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname)
-  }, [searchTerm, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, dateFrom, dateTo])
+  }, [searchTerm, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, includeReddit, dateFrom, dateTo])
 
   const buildAugmentedQuery = (
     baseQuery: string,
@@ -241,6 +245,7 @@ function App(): JSX.Element {
     selectedArea: string = areaFilter,
     selectedIntent: string = intentFilter,
     selectedFutureOnly: boolean = futureOnly,
+    selectedIncludeReddit: boolean = includeReddit,
     selectedDateFrom: string = dateFrom,
     selectedDateTo: string = dateTo,
     includeSummary: boolean = false,
@@ -276,7 +281,7 @@ function App(): JSX.Element {
     }
 
     try {
-      let apiUrl = `/api/search?q=${encodeURIComponent(composedQuery)}&raw_q=${encodeURIComponent(value.trim())}&source=${encodeURIComponent(selectedSource)}&mode=${encodeURIComponent(selectedMode)}&future_only=${selectedFutureOnly}&top_k=30`
+      let apiUrl = `/api/search?q=${encodeURIComponent(composedQuery)}&raw_q=${encodeURIComponent(value.trim())}&source=${encodeURIComponent(selectedSource)}&mode=${encodeURIComponent(selectedMode)}&future_only=${selectedFutureOnly}&reddit=${selectedIncludeReddit}&top_k=30`
       if (selectedDateFrom) apiUrl += `&date_from=${encodeURIComponent(selectedDateFrom)}`
       if (selectedDateTo) apiUrl += `&date_to=${encodeURIComponent(selectedDateTo)}`
       apiUrl += `&include_summary=${includeSummary ? '1' : '0'}`
@@ -340,6 +345,7 @@ function App(): JSX.Element {
     selectedArea: string = areaFilter,
     selectedIntent: string = intentFilter,
     selectedFutureOnly: boolean = futureOnly,
+    selectedIncludeReddit: boolean = includeReddit,
     selectedDateFrom: string = dateFrom,
     selectedDateTo: string = dateTo
   ): Promise<void> => {
@@ -354,6 +360,7 @@ function App(): JSX.Element {
       selectedArea,
       selectedIntent,
       selectedFutureOnly,
+      selectedIncludeReddit,
       selectedDateFrom,
       selectedDateTo,
       false,
@@ -372,6 +379,7 @@ function App(): JSX.Element {
       selectedArea,
       selectedIntent,
       selectedFutureOnly,
+      selectedIncludeReddit,
       selectedDateFrom,
       selectedDateTo,
       true,
@@ -700,8 +708,30 @@ function App(): JSX.Element {
               <div className="results-toolbar-copy">
                 <p className="results-count">{sortedResults.length} results</p>
               </div>
-              <div className="sort-row">
-                <label htmlFor="sort-select" className="filter-label">Sort by</label>
+              <div className="sort-row" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <label className="toggle-switch-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', opacity: 0.9 }}>
+                  <div className="custom-switch">
+                    <input 
+                      type="checkbox" 
+                      checked={includeReddit}
+                      onChange={(e) => {
+                        const val = e.target.checked
+                        setIncludeReddit(val)
+                        activeSearchRequestRef.current += 1
+                        if (searchInput.trim()) {
+                          runSearch(searchInput, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, val, dateFrom, dateTo, false, activeSearchRequestRef.current)
+                        }
+                      }}
+                    />
+                    <span className="custom-slider"></span>
+                  </div>
+                  <span style={{ fontSize: '0.82rem', color: 'var(--cornell-ink-soft)', fontWeight: 700, letterSpacing: '0.02em', textTransform: 'uppercase', userSelect: 'none' }}>Include Reddit</span>
+                </label>
+
+                <div style={{ width: '1px', height: '24px', backgroundColor: 'var(--cornell-border)' }}></div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <label htmlFor="sort-select" className="filter-label" style={{ margin: 0 }}>Sort by</label>
                 <select
                   id="sort-select"
                   className="sort-select"
@@ -712,6 +742,7 @@ function App(): JSX.Element {
                   <option value="date_asc">Date: soonest first</option>
                   <option value="date_desc">Date: latest first</option>
                 </select>
+                </div>
               </div>
             </div>
 
