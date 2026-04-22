@@ -661,7 +661,6 @@ id,osm_type,lon,lat,name,category,subcategory,address,website
 8421842651,node,-76.5352038,42.4163515,,amenity,bicycle_parking,,
 8427125365,node,-76.5050614,42.4391716,VFW Post,amenity,social_centre,,
 8444737818,node,-76.504585,42.4426,Billi Sign Shop,shop,art,,
-8444746032,node,-76.5016509,42.443941,Sultana Cafe,amenity,cafe,,
 8444763712,node,-76.5017206,42.4438664,Friendship Donations Network,amenity,social_facility,,
 8445025055,node,-76.5017745,42.4440025,Ithaca Gorge,tourism,motel,,
 8445188518,node,-76.5054533,42.4445803,,amenity,bench,,
