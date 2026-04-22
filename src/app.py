@@ -1296,15 +1296,26 @@ def build_query_vector(query):
     return query_tfidf, query_norm
 
 
+def blend_sparse_vectors(primary_vec, secondary_vec, primary_weight=0.75, secondary_weight=0.25):
+    blended = {}
+    for term, weight in primary_vec.items():
+        blended[term] = blended.get(term, 0.0) + (primary_weight * weight)
+    for term, weight in secondary_vec.items():
+        blended[term] = blended.get(term, 0.0) + (secondary_weight * weight)
+    return blended
+
+
 def cosine_similarity(query_vec, query_norm, doc_vec, doc_norm):
     if query_norm == 0.0 or doc_norm == 0.0:
         return 0.0
     return dot_product_sparse(query_vec, doc_vec) / (query_norm * doc_norm)
 
 
-def keyword_fallback_search(query, top_k=10, allowed_sources=None):
+def keyword_fallback_search(query, top_k=10, allowed_sources=None, expanded_query=None):
     query_tokens = set(normalized_query_tokens(query, restrict_to_vocab=False))
     expanded_query_tokens = set(expand_query_tokens(list(query_tokens)))
+    if expanded_query:
+        expanded_query_tokens.update(normalized_query_tokens(expanded_query, restrict_to_vocab=False))
     if not expanded_query_tokens:
         return []
 
@@ -1406,8 +1417,9 @@ def keyword_fallback_search(query, top_k=10, allowed_sources=None):
     results.sort(key=lambda item: item["score"], reverse=True)
     return results[:top_k]
 
-def search_documents(query, top_k=10, source="all", mode="svd", future_only=True, date_from=None, date_to=None):
+def search_documents(query, top_k=10, source="all", mode="svd", future_only=True, date_from=None, date_to=None, original_query=None):
     query = query.strip()
+    original_query = (original_query or query).strip()
     if not query or not SEARCH_DOCS:
         return [], {"positive": [], "negative": []}, "tfidf"
 
@@ -1420,7 +1432,7 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
         "fitness": {"recs"},
     }
     allowed_sources = source_mapping.get(source, source_mapping["all"])
-    query_tokens = set(normalized_query_tokens(query, restrict_to_vocab=False))
+    query_tokens = set(normalized_query_tokens(original_query, restrict_to_vocab=False))
     query_intents = infer_query_intents(query_tokens)
     if source == "all":
         if query_intents["food"] and not query_intents["social"]:
@@ -1434,12 +1446,28 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
         elif query_intents["place_like"] and (query_intents["study_friendly"] or query_intents["late_night"]) and not query_intents["social"]:
             allowed_sources = {"osm", "dining", "libraries", "cafes"}
 
-    raw_query_tokens = normalized_query_tokens(query, restrict_to_vocab=False)
-    has_raw_vocab_overlap = any(token in VOCAB for token in raw_query_tokens)
+    primary_query_tokens = normalized_query_tokens(original_query, restrict_to_vocab=False)
+    expanded_query_tokens = normalized_query_tokens(query, restrict_to_vocab=False)
+    has_primary_vocab_overlap = any(token in VOCAB for token in primary_query_tokens)
+    has_expanded_vocab_overlap = any(token in VOCAB for token in expanded_query_tokens)
 
-    query_vec, query_norm = build_query_vector(query)
-    if query_norm == 0.0 or not has_raw_vocab_overlap:
-        fallback_results = keyword_fallback_search(query, top_k=top_k, allowed_sources=allowed_sources)
+    primary_query_vec, primary_query_norm = build_query_vector(original_query)
+    expanded_query_vec, expanded_query_norm = build_query_vector(query)
+
+    if query != original_query:
+        query_vec = blend_sparse_vectors(primary_query_vec, expanded_query_vec)
+        query_norm = vector_norm(query_vec)
+    else:
+        query_vec = primary_query_vec
+        query_norm = primary_query_norm
+
+    if query_norm == 0.0 or not (has_primary_vocab_overlap or has_expanded_vocab_overlap):
+        fallback_results = keyword_fallback_search(
+            original_query,
+            top_k=top_k,
+            allowed_sources=allowed_sources,
+            expanded_query=query if query != original_query else None,
+        )
         if fallback_results:
             return fallback_results, {"positive": [], "negative": []}, "keyword_fallback"
 
@@ -1480,7 +1508,13 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
         if query_intents.get("food") and doc.get("source") in {"osm", "libraries"} and not is_food_relevant_doc(doc):
             continue
 
-        lexical_score = cosine_similarity(query_vec, query_norm, doc["_tfidf"], doc["_norm"])
+        primary_lexical_score = cosine_similarity(primary_query_vec, primary_query_norm, doc["_tfidf"], doc["_norm"])
+        expanded_lexical_score = cosine_similarity(expanded_query_vec, expanded_query_norm, doc["_tfidf"], doc["_norm"])
+        if query != original_query:
+            lexical_score = (0.75 * primary_lexical_score) + (0.25 * expanded_lexical_score)
+        else:
+            lexical_score = primary_lexical_score
+
         overlap_terms = query_terms.intersection(doc["_token_counts"].keys())
 
         if doc["source"] == "reddit":
@@ -1942,6 +1976,7 @@ def api_search():
         future_only=future_only,
         date_from=date_from,
         date_to=date_to,
+        original_query=query,
     )
 
     synthesis = {"answer": None, "warning": None}

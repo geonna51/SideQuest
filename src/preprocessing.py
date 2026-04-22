@@ -41,6 +41,30 @@ PHRASES = {
     "farmers market": "farmers_market"
 }
 
+
+def apply_phrase_replacements(text):
+    """
+    Replace multi-word phrases with compound tokens while tolerating simple
+    plural variants on the final word (e.g. "study spots" -> "study_spot").
+    """
+    updated = text
+    for phrase, token in sorted(PHRASES.items(), key=lambda item: len(item[0]), reverse=True):
+        words = phrase.split()
+        if not words:
+            continue
+
+        final_word = words[-1]
+        if final_word.endswith("s"):
+            final_pattern = re.escape(final_word)
+        else:
+            final_pattern = rf"{re.escape(final_word)}s?"
+
+        pattern_parts = [re.escape(word) for word in words[:-1]] + [final_pattern]
+        pattern = r"\b" + r"\s+".join(pattern_parts) + r"\b"
+        updated = re.sub(pattern, token, updated)
+
+    return updated
+
 def basic_lemmatize(word):
     if word in {"this", "is", "as", "was", "has", "previous", "campus", "fitness", "class", "always", "plus", "status", "express", "process", "series"}:
         return word
@@ -94,9 +118,7 @@ def strip_html_and_markdown(text):
 
 def normalize_text(text, aggressive=False):
     text = strip_html_and_markdown(text).lower()
-    
-    for phrase, token in PHRASES.items():
-        text = text.replace(phrase, token)
+    text = apply_phrase_replacements(text)
         
     words = re.findall(r"[a-z0-9_]+", text)
     
@@ -111,6 +133,11 @@ def normalize_text(text, aggressive=False):
         
         lemmatized = basic_lemmatize(w)
         cleaned.append(lemmatized)
+        # Keep phrase tokens such as "study_spot", but also preserve the
+        # component words so intent detection and lexical matching still see
+        # "study" and "spot" independently.
+        if "_" in lemmatized:
+            cleaned.extend(part for part in lemmatized.split("_") if part)
         
     return " ".join(cleaned)
 

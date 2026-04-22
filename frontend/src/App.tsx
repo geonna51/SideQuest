@@ -368,7 +368,7 @@ function App(): JSX.Element {
   const rankingModeLabel = searchMode === 'svd'
     ? effectiveMode === 'svd'
       ? 'Hybrid retrieval with latent semantic reranking'
-      : 'Hybrid retrieval with lexical fallback for this query'
+      : 'Hybrid retrieval with lexical fallback'
     : 'TF-IDF lexical baseline'
 
   const rankingModeNote = searchMode === 'svd'
