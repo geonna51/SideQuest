@@ -14,10 +14,14 @@ from collections import Counter, defaultdict
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
-from infosci_spark_client import LLMClient
 from places_enrichment import get_places_data
 from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import svds
+
+try:
+    from infosci_spark_client import LLMClient
+except ImportError:  # Optional in deploy environments without the private package.
+    LLMClient = None
 
 load_dotenv()
 
@@ -85,6 +89,13 @@ SVD_STATUS = {
     "components": 0,
     "message": "SVD index has not been built yet.",
 }
+
+
+def get_llm_client():
+    api_key = os.getenv("SPARK_API_KEY")
+    if not api_key or LLMClient is None:
+        return None, api_key
+    return LLMClient(api_key=api_key), api_key
 
 
 # -----------------------------
@@ -1747,11 +1758,9 @@ def reformulate_query_for_ir(query):
     optimized keywords for the IR system.  Returns the rewritten string,
     or the original query unchanged on failure.
     """
-    api_key = os.getenv("SPARK_API_KEY")
-    if not api_key:
+    client, api_key = get_llm_client()
+    if not api_key or client is None:
         return query
-
-    client = LLMClient(api_key=api_key)
     messages = [
         {
             "role": "system",
@@ -1840,14 +1849,17 @@ def synthesize_search_answer(query, results, rewritten_query=None):
             "warning": None,
         }
 
-    api_key = os.getenv("SPARK_API_KEY")
+    client, api_key = get_llm_client()
     if not api_key:
         return {
             "answer": format_non_llm_summary(query, results),
             "warning": "LLM synthesis is unavailable because SPARK_API_KEY is not set. Showing a rules-based summary instead.",
         }
-
-    client = LLMClient(api_key=api_key)
+    if client is None:
+        return {
+            "answer": format_non_llm_summary(query, results),
+            "warning": "LLM synthesis is unavailable because the Spark client dependency is not installed in this environment. Showing a rules-based summary instead.",
+        }
     context_text = build_result_context(results[:8])
 
     # Build query section with both original and rewritten queries

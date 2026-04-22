@@ -4,4 +4,4 @@ python-dotenv
 numpy
 scipy
 requests
-infosci-spark-client
+gunicorn
