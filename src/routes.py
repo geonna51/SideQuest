@@ -50,6 +50,9 @@ def register_routes(app):
         text = request.args.get("title", "")
         return jsonify(json_search(text))
 
+    from llm_routes import register_place_chat_route
+    register_place_chat_route(app)
+
     if USE_LLM:
         from llm_routes import register_chat_route
         register_chat_route(app, json_search)

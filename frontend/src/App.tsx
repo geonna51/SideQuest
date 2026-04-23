@@ -117,6 +117,11 @@ function App(): JSX.Element {
   const [sortBy, setSortBy] = useState<'score' | 'date_asc' | 'date_desc'>('score')
   const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null)
   const [rewrittenQuery, setRewrittenQuery] = useState<string | null>(null)
+  const [chatOpen, setChatOpen] = useState(false)
+  const [chatMessages, setChatMessages] = useState<Array<{text: string; isUser: boolean}>>([])
+  const [chatInput, setChatInput] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
+  const chatBottomRef = useRef<HTMLDivElement>(null)
   const activeSearchRequestRef = useRef<number>(0)
   const loadMoreRef = useRef<HTMLDivElement | null>(null)
   const hasSynthesisAnswer = answer.trim() !== ''
@@ -137,6 +142,10 @@ function App(): JSX.Element {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [])
+
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [chatMessages, chatLoading])
 
   useEffect(() => {
     const handleHashChange = () => {
@@ -433,6 +442,67 @@ function App(): JSX.Element {
     setFutureOnly(true)
     setDateFrom('')
     setDateTo('')
+  }
+
+  const sendGeneralChat = async (e: React.FormEvent): Promise<void> => {
+    e.preventDefault()
+    const text = chatInput.trim()
+    if (!text || chatLoading) return
+
+    setChatMessages(prev => [...prev, { text, isUser: true }])
+    setChatInput('')
+    setChatLoading(true)
+
+    const contextResults = sortedResults.slice(0, Math.min(visibleCount, 15))
+
+    try {
+      const response = await fetch('/api/chat/results', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, results: contextResults }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        setChatMessages(prev => [...prev, { text: 'Error: ' + (data.error || response.status), isUser: false }])
+        setChatLoading(false)
+        return
+      }
+
+      let assistantText = ''
+      setChatMessages(prev => [...prev, { text: '', isUser: false }])
+      setChatLoading(false)
+
+      const reader = response.body!.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6))
+              if (data.error) {
+                setChatMessages(prev => [...prev.slice(0, -1), { text: 'Error: ' + data.error, isUser: false }])
+                return
+              }
+              if (data.content !== undefined) {
+                assistantText += data.content
+                setChatMessages(prev => [...prev.slice(0, -1), { text: assistantText, isUser: false }])
+              }
+            } catch { /* ignore malformed lines */ }
+          }
+        }
+      }
+    } catch {
+      setChatMessages(prev => [...prev, { text: 'Something went wrong. Check the console.', isUser: false }])
+      setChatLoading(false)
+    }
   }
 
   const rankingModeLabel = searchMode === 'svd'
@@ -1060,9 +1130,70 @@ function App(): JSX.Element {
                   </div>
                 </div>
               )}
+
             </div>
           </div>
         </div>
+      )}
+      {page === 'search' && results.length > 0 && (
+        <>
+          <button
+            className={`chat-fab ${chatOpen ? 'chat-fab-open' : ''}`}
+            onClick={() => setChatOpen(o => !o)}
+            aria-label={chatOpen ? 'Close chat' : 'Ask about these results'}
+          >
+            {chatOpen ? (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+            )}
+          </button>
+
+          {chatOpen && (
+            <div className="chat-panel">
+              <div className="chat-panel-header">
+                <span className="chat-panel-title">Ask about these results</span>
+                <button className="chat-panel-close" onClick={() => setChatOpen(false)} aria-label="Close chat">✕</button>
+              </div>
+
+              <div className="chat-panel-messages">
+                {chatMessages.length === 0 && (
+                  <p className="chat-panel-empty">Ask anything about the {sortedResults.length} results on screen — comparisons, recommendations, hours, vibe…</p>
+                )}
+                {chatMessages.map((msg, i) => (
+                  <div key={i} className={`chat-bubble ${msg.isUser ? 'user' : 'assistant'}`}>
+                    <p>{msg.text}</p>
+                  </div>
+                ))}
+                {chatLoading && (
+                  <div className="loading-indicator visible">
+                    <span className="loading-dot" />
+                    <span className="loading-dot" />
+                    <span className="loading-dot" />
+                  </div>
+                )}
+                <div ref={chatBottomRef} />
+              </div>
+
+              <form className="chat-panel-form" onSubmit={sendGeneralChat}>
+                <input
+                  type="text"
+                  placeholder="Ask a question…"
+                  value={chatInput}
+                  onChange={e => setChatInput(e.target.value)}
+                  disabled={chatLoading}
+                  autoComplete="off"
+                  autoFocus
+                />
+                <button type="submit" disabled={chatLoading || !chatInput.trim()}>Send</button>
+              </form>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

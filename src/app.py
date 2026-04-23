@@ -2075,6 +2075,184 @@ def api_search_health():
 
 
 # -----------------------------
+# Results chat
+# -----------------------------
+@app.post("/api/chat/results")
+def api_chat_results():
+    from flask import stream_with_context, Response
+    import json as _json
+
+    data = request.get_json() or {}
+    user_message = (data.get("message") or "").strip()
+    results = data.get("results") or []
+    if not user_message:
+        return jsonify({"error": "Message is required"}), 400
+
+    client, api_key = get_llm_client()
+    if not api_key:
+        return jsonify({"error": "SPARK_API_KEY not set"}), 500
+    if client is None:
+        return jsonify({"error": "LLM client not available in this environment"}), 500
+
+    context_parts = []
+    for i, result in enumerate(results[:15], 1):
+        lines = [f"{i}. {result.get('title', 'Unknown')}"]
+        if result.get("category"):
+            lines.append(f"   Category: {result['category']}")
+        if result.get("location"):
+            lines.append(f"   Location: {result['location']}")
+        if result.get("start_time"):
+            lines.append(f"   Time: {result['start_time']}")
+        desc = (result.get("description") or "")[:180]
+        if desc:
+            lines.append(f"   About: {desc}")
+        places = result.get("places_data") or {}
+        if places.get("rating") is not None:
+            rating_line = f"   Rating: {places['rating']}"
+            if places.get("rating_count"):
+                rating_line += f" ({places['rating_count']} reviews)"
+            lines.append(rating_line)
+        if places.get("price_level"):
+            lines.append(f"   Price: {places['price_level']}")
+        if places.get("hours"):
+            lines.append(f"   Hours: {places['hours'][0]}")
+        if places.get("reviews"):
+            review_lines = []
+            for r in places["reviews"][:3]:
+                text = (r.get("text") or "")[:150]
+                if text:
+                    stars = f"{'★' * int(r['rating'])}" if r.get("rating") else ""
+                    review_lines.append(f"     - {r.get('author', 'Reviewer')} {stars}: {text}")
+            if review_lines:
+                lines.append("   Reviews:\n" + "\n".join(review_lines))
+        snippet = (result.get("reddit_snippet") or "")[:120]
+        if snippet:
+            lines.append(f"   Reddit: {snippet}")
+        context_parts.append("\n".join(lines))
+
+    context_text = "\n\n".join(context_parts) or "No results available."
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a helpful local guide for Ithaca, NY. "
+                "The user searched SideQuest and you have their current search results. "
+                "Answer their questions based only on those results. "
+                "Be concise and practical. If something isn't in the results, say so."
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"Current search results:\n\n{context_text}\n\nQuestion: {user_message}",
+        },
+    ]
+
+    def generate():
+        try:
+            for chunk in client.chat(messages, stream=True):
+                if chunk.get("content"):
+                    yield f"data: {_json.dumps({'content': chunk['content']})}\n\n"
+        except Exception as exc:
+            logger.error(f"Results chat streaming error: {exc}")
+            yield f"data: {_json.dumps({'error': 'Streaming error occurred'})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# -----------------------------
+# Place-specific chat
+# -----------------------------
+@app.post("/api/chat/place")
+def api_chat_place():
+    from flask import stream_with_context, Response
+    data = request.get_json() or {}
+    user_message = (data.get("message") or "").strip()
+    place = data.get("place") or {}
+    if not user_message:
+        return jsonify({"error": "Message is required"}), 400
+
+    client, api_key = get_llm_client()
+    if not api_key:
+        return jsonify({"error": "SPARK_API_KEY not set"}), 500
+    if client is None:
+        return jsonify({"error": "LLM client not available in this environment"}), 500
+
+    context_parts = []
+    if place.get("title"):
+        context_parts.append(f"Name: {place['title']}")
+    if place.get("description"):
+        context_parts.append(f"Description: {place['description']}")
+    if place.get("category"):
+        context_parts.append(f"Category: {place['category']}")
+    if place.get("location"):
+        context_parts.append(f"Location: {place['location']}")
+    if place.get("start_time"):
+        context_parts.append(f"Event time: {place['start_time']}")
+    if place.get("organization"):
+        context_parts.append(f"Organizer: {place['organization']}")
+    if place.get("reddit_snippet"):
+        context_parts.append(f"Community insight: {place['reddit_snippet']}")
+
+    places_data = place.get("places_data") or {}
+    if places_data.get("rating") is not None:
+        rating_str = f"Rating: {places_data['rating']}"
+        if places_data.get("rating_count"):
+            rating_str += f" ({places_data['rating_count']} reviews)"
+        context_parts.append(rating_str)
+    if places_data.get("price_level"):
+        context_parts.append(f"Price level: {places_data['price_level']}")
+    if places_data.get("phone"):
+        context_parts.append(f"Phone: {places_data['phone']}")
+    if places_data.get("hours"):
+        context_parts.append("Hours:\n" + "\n".join(places_data["hours"]))
+    if places_data.get("reviews"):
+        reviews_text = "\n".join(
+            f"- {r['author']} ({'★' * int(r['rating']) if r.get('rating') else 'no rating'}): {r['text']}"
+            for r in places_data["reviews"][:5]
+            if r.get("text")
+        )
+        if reviews_text:
+            context_parts.append(f"Reviews:\n{reviews_text}")
+
+    context_text = "\n\n".join(context_parts) or "No detailed information available."
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a helpful local guide for Ithaca, NY answering questions about a specific place or event. "
+                "Answer only based on the provided information. If something isn't covered, say so honestly and briefly. "
+                "Keep answers concise and practical."
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"Place information:\n\n{context_text}\n\nQuestion: {user_message}",
+        },
+    ]
+
+    import json as _json
+
+    def generate():
+        try:
+            for chunk in client.chat(messages, stream=True):
+                if chunk.get("content"):
+                    yield f"data: {_json.dumps({'content': chunk['content']})}\n\n"
+        except Exception as exc:
+            logger.error(f"Place chat streaming error: {exc}")
+            yield f"data: {_json.dumps({'error': 'Streaming error occurred'})}\n\n"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# -----------------------------
 # Frontend serving
 # -----------------------------
 @app.route("/", defaults={"path": ""})
