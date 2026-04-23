@@ -56,7 +56,7 @@ type PlacesData = {
   rating?: number | null
   rating_count?: number | null
   price_level?: string | null
-  photo_url?: string | null
+  photo_path?: string | null
   previous_name?: string | null
   description?: string | null
   address?: string | null
@@ -1089,10 +1089,10 @@ function App(): JSX.Element {
           <div className="modal-panel" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
             <button className="modal-close" onClick={() => setSelectedResult(null)} aria-label="Close">✕</button>
 
-            {selectedResult.places_data?.photo_url && (
+            {selectedResult.places_data?.photo_path && (
               <img
                 className="modal-photo"
-                src={selectedResult.places_data.photo_url}
+                src={selectedResult.places_data.photo_path}
                 alt={selectedResult.title}
               />
             )}

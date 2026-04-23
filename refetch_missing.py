@@ -89,15 +89,12 @@ def fetch_place(name, lat, lon):
 
     p = places[0]
 
-    photo_url = None
+    photo_name = None
     photos = p.get("photos", [])
     if photos:
         pname = photos[0].get("name", "")
         if pname:
-            photo_url = (
-                f"https://places.googleapis.com/v1/{pname}/media"
-                f"?maxHeightPx=400&maxWidthPx=600&key={GOOGLE_PLACES_API_KEY}"
-            )
+            photo_name = pname
 
     hours = None
     oh = p.get("regularOpeningHours", {})
@@ -121,7 +118,7 @@ def fetch_place(name, lat, lon):
         "rating": p.get("rating"),
         "rating_count": p.get("userRatingCount"),
         "price_level": _PRICE_LEVEL_MAP.get(p.get("priceLevel", ""), None),
-        "photo_url": photo_url,
+        "photo_name": photo_name,
         "reviews": reviews or None,
     }
 
