@@ -379,12 +379,14 @@ def compute_intent_alignment_adjustment(query_intents, doc):
         adjustment += (study_signal * 0.26) - 0.05
         if source == "campusgroups" and doc_type == "event" and study_signal < 0.45:
             adjustment -= 0.12
-        if source in {"osm", "dining"} and study_signal >= 0.45:
-            adjustment += 0.08
+        if source in {"osm", "dining", "libraries", "cafes"} and study_signal >= 0.40:
+            adjustment += 0.15
         if query_intents["place_like"] and doc_type == "event":
             adjustment -= 0.18
-        if query_intents["place_like"] and source in {"osm", "dining"}:
-            adjustment += 0.1
+        if query_intents["place_like"] and source in {"osm", "dining", "libraries", "cafes"}:
+            adjustment += 0.15
+        if source == "libraries":
+            adjustment += 0.22  # Libraries are inherently strong study spots
         if query_intents["late_night"] and doc_type == "event":
             adjustment -= 0.12
     if query_intents["nightlife"]:
@@ -395,7 +397,7 @@ def compute_intent_alignment_adjustment(query_intents, doc):
         if source == "osm" and "library" in normalize_whitespace(doc.get("title", "")).lower():
             adjustment -= 0.18
 
-    return max(-0.22, min(0.28, adjustment))
+    return max(-0.25, min(0.35, adjustment))
 
 
 def is_food_relevant_doc(doc):
@@ -462,9 +464,9 @@ def compute_metadata_adjustment(query_tokens, doc):
 
     if {"collegetown", "downtown", "campus", "ithaca"} & query_tokens:
         overlap = sum(1 for token in query_tokens if token in location)
-        adjustment += min(0.08, overlap * 0.03)
+        adjustment += min(0.12, overlap * 0.04)
 
-    return max(-0.2, min(0.25, adjustment))
+    return max(-0.25, min(0.35, adjustment))
 
 
 def compute_overlap_boost(query_tokens, doc):
@@ -1430,7 +1432,7 @@ def keyword_fallback_search(query, top_k=10, allowed_sources=None, expanded_quer
     results.sort(key=lambda item: item["score"], reverse=True)
     return results[:top_k]
 
-def search_documents(query, top_k=10, source="all", mode="svd", future_only=True, date_from=None, date_to=None, original_query=None, include_reddit=True):
+def search_documents(query, top_k=10, source="all", mode="svd", future_only=True, date_from=None, date_to=None, original_query=None, include_reddit=True, area="any"):
     query = query.strip()
     original_query = (original_query or query).strip()
     if not query or not SEARCH_DOCS:
@@ -1445,7 +1447,7 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
         "fitness": {"recs"},
     }
     allowed_sources = source_mapping.get(source, source_mapping["all"])
-    query_tokens = set(normalized_query_tokens(original_query, restrict_to_vocab=False))
+    query_tokens = set(normalized_query_tokens(query, restrict_to_vocab=False))
     query_intents = infer_query_intents(query_tokens)
     if source == "all":
         if query_intents["food"] and not query_intents["social"]:
@@ -1518,7 +1520,23 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
             doc_lat, doc_lon = None, None
         return doc_lat, doc_lon
 
+    def is_in_area(area_val, d):
+        if area_val == "any": return True
+        txt = (d.get("location","") + " " + d.get("description","") + " " + d.get("category","")).lower()
+        if area_val == "campus":
+            return "campus" in txt or "cornell" in txt or d.get("source") in {"libraries", "dining", "recs", "campusgroups"}
+        elif area_val == "collegetown":
+            return "collegetown" in txt or "college ave" in txt or "dryden" in txt or "eddy" in txt
+        elif area_val == "downtown":
+            return "downtown" in txt or "commons" in txt or "state st" in txt or "aurora" in txt or "seneca" in txt or "tioga" in txt
+        elif area_val == "nature":
+            return "trail" in txt or "park" in txt or "gorge" in txt or "waterfall" in txt or "nature" in txt or d.get("source") == "trails"
+        return True
+
     for doc_idx, doc in enumerate(SEARCH_DOCS):
+        if not is_in_area(area, doc):
+            continue
+
         if query_intents.get("food") and doc.get("source") in {"osm", "libraries"} and not is_food_relevant_doc(doc):
             continue
 
@@ -1708,8 +1726,6 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
                 s_res["reddit_snippet"] = f"Community mention: \"{snippet}\""
                 s_res["score"] = round(s_res["score"] + 0.05, 6)
 
-    # Remove near-duplicate cards so users see diverse options.
-    top_structured.sort(key=lambda x: x["score"], reverse=True)
     # Remove near-duplicate cards so users see diverse options.
     top_structured.sort(key=lambda x: x["score"], reverse=True)
     
@@ -1936,6 +1952,7 @@ def api_search():
     future_only = request.args.get("future_only", "true").strip().lower() != "false"
     include_summary = request.args.get("include_summary", "").strip().lower() in {"1", "true", "yes"}
     include_reddit = request.args.get("reddit", "true").strip().lower() != "false"
+    area = request.args.get("area", "any").strip().lower()
 
     date_from = None
     date_to = None
@@ -1996,7 +2013,8 @@ def api_search():
         date_from=date_from,
         date_to=date_to,
         original_query=query,
-        include_reddit=include_reddit
+        include_reddit=include_reddit,
+        area=area
     )
 
     synthesis = {"answer": None, "warning": None}

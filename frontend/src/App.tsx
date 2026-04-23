@@ -17,7 +17,7 @@ const TIME_OPTIONS = [
 
 const AREA_OPTIONS = [
   { value: 'any', label: 'Anywhere', queryTerms: '' },
-  { value: 'campus', label: 'On campus', queryTerms: 'cornell campus collegetown central campus north campus west campus' },
+  { value: 'campus', label: 'On campus', queryTerms: 'cornell campus central campus north campus west campus' },
   { value: 'collegetown', label: 'Collegetown', queryTerms: 'collegetown near campus college avenue dryden road' },
   { value: 'downtown', label: 'Downtown Ithaca', queryTerms: 'downtown ithaca commons city center' },
   { value: 'nature', label: 'Nature spots', queryTerms: 'state park trail gorge waterfall nature ithaca outskirts' },
@@ -314,7 +314,9 @@ function App(): JSX.Element {
       setAnswer('')
       setAnswerWarning('')
       setRewrittenQuery(null)
-      setLoading(true)
+      if (results.length === 0 || value.trim() !== searchTerm) {
+        setLoading(true)
+      }
     }
 
     try {
@@ -431,8 +433,12 @@ function App(): JSX.Element {
     setAreaFilter('any')
     setIntentFilter('any')
     setFutureOnly(true)
+    setIncludeReddit(true)
     setDateFrom('')
     setDateTo('')
+    if (searchInput.trim()) {
+      void handleSearch(searchInput, 'all', 'svd', 'any', 'any', 'any', true, true, '', '')
+    }
   }
 
   const rankingModeLabel = searchMode === 'svd'
@@ -476,7 +482,13 @@ function App(): JSX.Element {
               id="source-filter"
               className="filter-select"
               value={source}
-              onChange={(e) => setSource(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value
+                setSource(val)
+                if (searchInput.trim()) {
+                  void handleSearch(searchInput, val, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, includeReddit, dateFrom, dateTo)
+                }
+              }}
             >
             <option value="all">All categories</option>
             <option value="events">Events & Activities</option>
@@ -495,7 +507,11 @@ function App(): JSX.Element {
               className="filter-select"
               value={timeFilter}
               onChange={(e) => {
-                setTimeFilter(e.target.value)
+                const val = e.target.value
+                setTimeFilter(val)
+                if (searchInput.trim()) {
+                  void handleSearch(searchInput, source, searchMode, val, areaFilter, intentFilter, futureOnly, includeReddit, dateFrom, dateTo)
+                }
               }}
             >
               {TIME_OPTIONS.map((option) => (
@@ -511,7 +527,11 @@ function App(): JSX.Element {
               className="filter-select"
               value={areaFilter}
               onChange={(e) => {
-                setAreaFilter(e.target.value)
+                const val = e.target.value
+                setAreaFilter(val)
+                if (searchInput.trim()) {
+                  void handleSearch(searchInput, source, searchMode, timeFilter, val, intentFilter, futureOnly, includeReddit, dateFrom, dateTo)
+                }
               }}
             >
               {AREA_OPTIONS.map((option) => (
@@ -527,7 +547,11 @@ function App(): JSX.Element {
               className="filter-select"
               value={intentFilter}
               onChange={(e) => {
-                setIntentFilter(e.target.value)
+                const val = e.target.value
+                setIntentFilter(val)
+                if (searchInput.trim()) {
+                  void handleSearch(searchInput, source, searchMode, timeFilter, areaFilter, val, futureOnly, includeReddit, dateFrom, dateTo)
+                }
               }}
             >
               {INTENT_OPTIONS.map((option) => (
@@ -543,7 +567,11 @@ function App(): JSX.Element {
               type="checkbox"
               checked={futureOnly}
               onChange={(e) => {
-                setFutureOnly(e.target.checked)
+                const val = e.target.checked
+                setFutureOnly(val)
+                if (searchInput.trim()) {
+                  void handleSearch(searchInput, source, searchMode, timeFilter, areaFilter, intentFilter, val, includeReddit, dateFrom, dateTo)
+                }
               }}
             />
             Upcoming events only
@@ -559,7 +587,11 @@ function App(): JSX.Element {
               className="filter-select"
               value={dateFrom}
               onChange={(e) => {
-                setDateFrom(e.target.value)
+                const val = e.target.value
+                setDateFrom(val)
+                if (searchInput.trim()) {
+                  void handleSearch(searchInput, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, includeReddit, val, dateTo)
+                }
               }}
             />
           </div>
@@ -571,7 +603,11 @@ function App(): JSX.Element {
               className="filter-select"
               value={dateTo}
               onChange={(e) => {
-                setDateTo(e.target.value)
+                const val = e.target.value
+                setDateTo(val)
+                if (searchInput.trim()) {
+                  void handleSearch(searchInput, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, includeReddit, dateFrom, val)
+                }
               }}
             />
           </div>
@@ -582,6 +618,9 @@ function App(): JSX.Element {
               onClick={() => {
                 setDateFrom('')
                 setDateTo('')
+                if (searchInput.trim()) {
+                  void handleSearch(searchInput, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, includeReddit, '', '')
+                }
               }}
             >
               Clear dates
@@ -606,7 +645,12 @@ function App(): JSX.Element {
               type="button"
               className={`mode-toggle-button ${searchMode === 'svd' ? 'active' : ''}`}
               aria-pressed={searchMode === 'svd'}
-              onClick={() => setSearchMode('svd')}
+              onClick={() => {
+                setSearchMode('svd')
+                if (searchInput.trim()) {
+                  void handleSearch(searchInput, source, 'svd', timeFilter, areaFilter, intentFilter, futureOnly, includeReddit, dateFrom, dateTo)
+                }
+              }}
             >
               <span className="mode-toggle-title">Hybrid SVD Search</span>
               <span className="mode-toggle-subtitle">Latent semantic ranking with TF-IDF fallback</span>
@@ -615,7 +659,12 @@ function App(): JSX.Element {
               type="button"
               className={`mode-toggle-button ${searchMode === 'tfidf' ? 'active' : ''}`}
               aria-pressed={searchMode === 'tfidf'}
-              onClick={() => setSearchMode('tfidf')}
+              onClick={() => {
+                setSearchMode('tfidf')
+                if (searchInput.trim()) {
+                  void handleSearch(searchInput, source, 'tfidf', timeFilter, areaFilter, intentFilter, futureOnly, includeReddit, dateFrom, dateTo)
+                }
+              }}
             >
               <span className="mode-toggle-title">TF-IDF Baseline</span>
               <span className="mode-toggle-subtitle">Exact lexical matching</span>
@@ -725,7 +774,7 @@ function App(): JSX.Element {
               <div>
                 <p className="synthesis-eyebrow">LLM Synthesis</p>
                 <h2 className="synthesis-title">Quick recommendation summary</h2>
-                <br></br>
+                <br />
               </div>
               <span className={`synthesis-status-pill ${hasSynthesisAnswer ? 'ready' : 'offline'}`}>
                 {hasSynthesisAnswer ? 'Available' : summaryLoading ? 'Generating' : 'On demand'}
@@ -834,9 +883,8 @@ function App(): JSX.Element {
                       onChange={(e) => {
                         const val = e.target.checked
                         setIncludeReddit(val)
-                        activeSearchRequestRef.current += 1
                         if (searchInput.trim()) {
-                          runSearch(searchInput, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, val, dateFrom, dateTo, false, activeSearchRequestRef.current)
+                          void handleSearch(searchInput, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, val, dateFrom, dateTo)
                         }
                       }}
                     />
@@ -891,10 +939,8 @@ function App(): JSX.Element {
                   </div>
 
                   {result.description && (
-                    <p className="episode-desc">
-                      {result.source === 'reddit' && result.description.length > 150 
-                        ? result.description.slice(0, 150) + '...' 
-                        : result.description}
+                    <p className={`episode-desc ${result.source === 'reddit' ? 'reddit-truncated' : ''}`}>
+                      {result.description}
                     </p>
                   )}
 
@@ -924,7 +970,7 @@ function App(): JSX.Element {
 
                   <div className="episode-meta-container">
                     {result.source && (
-                      <span className="meta-chip source-chip">{result.source}</span>
+                      <span className="meta-chip source-chip">{result.source}{result.doc_type && result.doc_type !== result.source ? ` · ${result.doc_type.replace(/_/g, ' ')}` : ''}</span>
                     )}
                     {result.category && (
                       <span className="meta-chip">{result.category}</span>
