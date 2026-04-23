@@ -10,8 +10,48 @@ import json
 import os
 import re
 import logging
+import requests as _requests
 from flask import request, jsonify, Response, stream_with_context
-from infosci_spark_client import LLMClient
+
+try:
+    from infosci_spark_client import LLMClient
+except ImportError:
+    class LLMClient:
+        _ENDPOINT = "https://4300spark.infosci.cornell.edu/api/chat"
+
+        def __init__(self, api_key: str):
+            self._headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+        def chat(self, messages, stream=False):
+            payload = {"messages": messages, "stream": stream}
+            if stream:
+                return self._stream(payload)
+            resp = _requests.post(self._ENDPOINT, json=payload, headers=self._headers)
+            resp.raise_for_status()
+            data = resp.json()
+            content = data["choices"][0]["message"]["content"] if data.get("choices") else ""
+            return {"content": content}
+
+        def _stream(self, payload):
+            resp = _requests.post(self._ENDPOINT, json=payload, headers=self._headers, stream=True, timeout=None)
+            resp.raise_for_status()
+            for line in resp.iter_lines():
+                if not line:
+                    continue
+                line_str = line.decode("utf-8")
+                if line_str.startswith("data: "):
+                    line_str = line_str[6:]
+                if line_str.strip() == "[DONE]":
+                    break
+                try:
+                    data = json.loads(line_str)
+                    if data.get("choices"):
+                        delta = data["choices"][0].get("delta", {})
+                        yield {"content": delta.get("content", "")}
+                        if data["choices"][0].get("finish_reason"):
+                            break
+                except (json.JSONDecodeError, Exception):
+                    continue
 
 logger = logging.getLogger(__name__)
 
@@ -48,12 +88,14 @@ def register_chat_route(app, json_search):
 
     @app.route("/api/chat", methods=["POST"])
     def chat():
+        if LLMClient is None:
+            return jsonify({"error": "LLM client unavailable in this environment"}), 503
         data = request.get_json() or {}
         user_message = (data.get("message") or "").strip()
         if not user_message:
             return jsonify({"error": "Message is required"}), 400
 
-        api_key = os.getenv("API_KEY")
+        api_key = os.getenv("API_KEY") or os.getenv("SPARK_API_KEY")
         if not api_key:
             return jsonify({"error": "API_KEY not set — add it to your .env file"}), 500
 
@@ -99,13 +141,15 @@ def register_place_chat_route(app):
 
     @app.route("/api/chat/place", methods=["POST"])
     def place_chat():
+        if LLMClient is None:
+            return jsonify({"error": "LLM client unavailable in this environment"}), 503
         data = request.get_json() or {}
         user_message = (data.get("message") or "").strip()
         place = data.get("place") or {}
         if not user_message:
             return jsonify({"error": "Message is required"}), 400
 
-        api_key = os.getenv("API_KEY")
+        api_key = os.getenv("API_KEY") or os.getenv("SPARK_API_KEY")
         if not api_key:
             return jsonify({"error": "API_KEY not set — add it to your .env file"}), 500
 

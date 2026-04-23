@@ -20,8 +20,8 @@ from scipy.sparse.linalg import svds
 
 try:
     from infosci_spark_client import LLMClient
-except ImportError:  # Optional in deploy environments without the private package.
-    LLMClient = None
+except ImportError:
+    from llm_routes import LLMClient
 
 load_dotenv()
 

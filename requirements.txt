@@ -5,4 +5,3 @@ numpy
 scipy
 requests
 gunicorn==25.0.3
-infosci-spark-client
