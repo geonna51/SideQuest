@@ -57,6 +57,9 @@ type PlacesData = {
   rating_count?: number | null
   price_level?: string | null
   photo_url?: string | null
+  previous_name?: string | null
+  description?: string | null
+  address?: string | null
   reviews?: Array<{
     author: string
     rating: number | null
@@ -1105,6 +1108,10 @@ function App(): JSX.Element {
                 </div>
               </div>
 
+              {selectedResult.places_data?.previous_name && (
+                <p className="modal-previous-name">formerly {selectedResult.places_data.previous_name}</p>
+              )}
+
               <p className="modal-meta">
                 {[selectedResult.category, selectedResult.location].filter(Boolean).join(' · ')}
               </p>
@@ -1120,9 +1127,13 @@ function App(): JSX.Element {
                     View Details
                   </a>
                 )}
-                {selectedResult.lat != null && selectedResult.lon != null && (
+                {(selectedResult.places_data?.address || selectedResult.lat != null) && (
                   <a
-                    href={`https://www.google.com/maps/search/?api=1&query=${selectedResult.lat},${selectedResult.lon}`}
+                    href={
+                      selectedResult.places_data?.address
+                        ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedResult.places_data.address)}`
+                        : `https://www.google.com/maps/search/?api=1&query=${selectedResult.lat},${selectedResult.lon}`
+                    }
                     target="_blank"
                     rel="noreferrer"
                     className="action-button action-button-outline"

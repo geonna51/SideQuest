@@ -225,7 +225,6 @@ id,osm_type,lon,lat,name,category,subcategory,address,website
 2095834019,node,-76.4814047,42.4501265,Goldies,amenity,fast_food,,
 2095834022,node,-76.4794439,42.44785,Bus Stop Bagels,amenity,cafe,,
 2108337074,node,-76.4759957,42.4535179,North Star Dining,amenity,restaurant,186 Cradit Farm Drive,
-2108342502,node,-76.4777169,42.4559956,Robert Purcell Marketplace Eatery,amenity,restaurant,,
 2108342524,node,-76.4775184,42.4557581,Bear Necessities,shop,convenience,,
 2108342530,node,-76.4793192,42.45318,Carol's Cafe,amenity,cafe,,
 2109334544,node,-76.4835817,42.4436034,,amenity,parking,,
@@ -351,7 +350,6 @@ id,osm_type,lon,lat,name,category,subcategory,address,website
 4335911965,node,-76.4770319,42.4532934,Appel Commons,highway,bus_stop,,
 4335911966,node,-76.4811127,42.4564004,Jessup @ Triphammer,highway,bus_stop,,
 4335911967,node,-76.4784183,42.4569825,Northcross @ Jessup,highway,bus_stop,,
-4335911968,node,-76.4769573,42.4566283,Robert Purcell Community Center,highway,bus_stop,,
 4335911969,node,-76.4745861,42.4567319,Jessup @ Pleasant Grove,highway,bus_stop,,
 4335911970,node,-76.4628995,42.4376366,East Hill Plaza,highway,bus_stop,,
 4335911971,node,-76.4627907,42.4390088,East Hill Office Bldg.,highway,bus_stop,,
@@ -497,7 +495,7 @@ id,osm_type,lon,lat,name,category,subcategory,address,website
 5834493379,node,-76.5123113,42.4096145,,tourism,information,,
 5840544170,node,-76.4979992,42.4406009,Tompkins Trust Company,office,company,,
 5840564776,node,-76.4896558,42.4405876,Stewart @ Seneca,highway,bus_stop,,
-5840567905,node,-76.4899926,42.442022,Luna,amenity,fast_food,,
+5840567905,node,-76.4899926,42.442022,Luna Love Holistic Hair Studio,amenity,hairdresser,215 N Cayuga St # 79,
 5840567906,node,-76.4897043,42.4420095,Carriage House Cafe,amenity,restaurant,,
 5840567907,node,-76.489998,42.4419764,Loco,amenity,pub,,
 5840632387,node,-76.4774421,42.4492989,FedEx,amenity,post_box,,
@@ -545,7 +543,6 @@ id,osm_type,lon,lat,name,category,subcategory,address,website
 6903767901,node,-76.4851541,42.4447315,Anabel Taylor Hall,highway,bus_stop,,
 6903767902,node,-76.4824618,42.447626,Uris Hall Across Street,highway,bus_stop,,
 6903767904,node,-76.4824953,42.4581631,Jessup @ Triphammer,highway,bus_stop,,
-6903767907,node,-76.4770349,42.4567648,Robert Purcell Community Center,highway,bus_stop,,
 6903767908,node,-76.4746725,42.4568384,Jessup @ Pleasent Grove,highway,bus_stop,,
 6903767910,node,-76.4772719,42.4580471,A Lot - Lower Stop,highway,bus_stop,,
 6903767911,node,-76.4866039,42.4539704,Highland @ Thurston,highway,bus_stop,,
@@ -567,7 +564,7 @@ id,osm_type,lon,lat,name,category,subcategory,address,website
 7182934085,node,-76.5089929,42.437015,Ashley Nails,shop,beauty,228 South Fulton Street,
 7182934138,node,-76.4783622,42.4693605,Satori Salon,shop,hairdresser,840 Hanshaw Road,
 7243574915,node,-76.485118,42.4417399,Oishii Bowl,amenity,restaurant,401 College Avenue,
-7243574916,node,-76.4856981,42.4415134,Xi'an Street Food,amenity,restaurant,159 Dryden Road,https://xianstreetfoodusa.com/
+7243574916,node,-76.4856981,42.4415134,Xi'an Street Food,amenity,restaurant,120 Dryden Rd,https://xianstreetfoodusa.com/
 7272446140,node,-76.5097135,42.4316759,FlixBus Ithaca,public_transport,stop_position,,
 7272446141,node,-76.5098269,42.4316735,FlixBus Ithaca,highway,bus_stop,,
 7277410161,node,-76.5411406,42.4089256,,tourism,information,,
@@ -727,7 +724,7 @@ id,osm_type,lon,lat,name,category,subcategory,address,website
 8796635618,node,-76.46417,42.48027,Cayuga Physical Therapy at Brentwood Drive,amenity,clinic,10 Brentwood Drive,https://cayugahealth.org/hospital/cayuga-pt-10-brentwood-drive/
 8796635766,node,-76.4998714,42.4388393,Circus Culture,amenity,circus_school,116 West Green Street,http://www.circusculture.org/
 8796636492,node,-76.5077895,42.4386641,Corazon Martial Arts LLC,amenity,dojo,624 West Green Street,
-8796636524,node,-76.4954944,42.4400755,Luna Inspired Street Food,amenity,restaurant,113 North Aurora Street,https://www.lunastreetfood.com/
+8796636524,node,-76.4954944,42.4400755,Catering By Luna,amenity,restaurant,310 Stewart Ave,
 8796636693,node,-76.506584,42.4475838,WellBeing Pediatrics & Adolescent Medicine,amenity,clinic,402 Third Street,https://cayugahealth.org/hospital/wellbeing-pediatrics-adolescent-medicine/
 8796637014,node,-76.4988429,42.4393506,Old Steel - Bicycle Repair and Recyclery,shop,bicycle,101 East State Street,
 8796637027,node,-76.5139231,42.4397563,"The Reach Project, Inc.",amenity,clinic,1001 West Seneca Street,https://www.reachprojectinc.org/
@@ -1836,7 +1833,6 @@ id,osm_type,lon,lat,name,category,subcategory,address,website
 240820965,way,-76.4969474,42.4393125,Center Ithaca,shop,mall,171 East State Street,http://www.centerithaca.com
 240821900,way,-76.4996158,42.439246,State Theatre,amenity,theatre,107 West State Street,http://www.stateofithaca.com/
 241061329,way,-76.4767877,42.4561344,High Rise 5,building,dormitory,225 Jessup Road,
-241061691,way,-76.4775007,42.4559394,Robert Purcell Community Center,amenity,community_centre,,https://scl.cornell.edu/residential-life/housing/community-centers/robert-purcell-community-center
 242305395,way,-76.4973368,42.4407349,Seneca Place on the Commons,building,hotel,130 East Seneca Street,https://www.ciminelli.com/app/property/details/100167
 242549316,way,-76.4949278,42.439753,Carey Building,building,retail,314-320 East State Street,
 242549410,way,-76.4994062,42.4400995,The Clinton House,building,yes,116 North Cayuga Street,http://www.travishydeproperties.com/properties/clinton_house.html

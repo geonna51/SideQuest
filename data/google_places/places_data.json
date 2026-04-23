@@ -1759,7 +1759,43 @@
       }
     ]
   },
-  "osm:2108342502": null,
+  "osm:2108342502": {
+    "website": "http://www.cornell.edu/",
+    "phone": "(607) 255-6214",
+    "hours": [
+      "Monday: 8:00\u202fAM\u2009\u2013\u20092:00\u202fAM",
+      "Tuesday: 8:00\u202fAM\u2009\u2013\u20092:00\u202fAM",
+      "Wednesday: 8:00\u202fAM\u2009\u2013\u20092:00\u202fAM",
+      "Thursday: 8:00\u202fAM\u2009\u2013\u20092:00\u202fAM",
+      "Friday: 8:00\u202fAM\u2009\u2013\u20092:00\u202fAM",
+      "Saturday: 8:00\u202fAM\u2009\u2013\u20092:00\u202fAM",
+      "Sunday: 8:00\u202fAM\u2009\u2013\u20092:00\u202fAM"
+    ],
+    "rating": 4.4,
+    "rating_count": 301,
+    "price_level": null,
+    "photo_url": "https://places.googleapis.com/v1/places/ChIJI-ZCXxiC0IkRQsIvu40I6L4/photos/AU_ZVEGgZ8ow8UTTBj5Sz_hoCmBVk9NRkzBzTv-iQtAgaacLbwt6jrmp0EAgwbbR3jLJvKAkYEUJUI0oiLgI0pPCD2ZYnEDrdXB0P4iJ-HL1oOaiP0rk2nkXQg9Wo-YwERYcsZxC1pEGK1Q7hWnCvRKwQ-3s3pW4WuksXuPO19sOlQABCaqlkL8tshGTWGxlKhjpdV9EvnZ4Hv1h7BCXcqcwRLf6Mv1aDD_fWdbqmqDpSpuVfEyg2asfWKGcnlYlRsiuFW-yFKBjTJeXSdUBUsaNunDdfqwT1t6FnZPPa_ze5a9CuiZoWx_kQIOv0zcWMnRvAt7wujr1-QGf-M3C6GYo6b7Cs69-kvm72e_zKSSvgNgT3BssN1x5TxhCydymODern50PKoIpdLFotDAC5H9iIzG7MpBJPbhuc_zwufkYXGg/media?maxHeightPx=400&maxWidthPx=600&key=AIzaSyCm79aaj55QH44dDFv7pDp2UhHd-4OFors",
+    "reviews": [
+      {
+        "author": "Edel Lopez",
+        "rating": 5,
+        "text": "Beautiful and practical space highly recommended to prepare conferences. The staff is amazing and super effective!",
+        "relative_time": "3 years ago"
+      },
+      {
+        "author": "caitlin spry",
+        "rating": 5,
+        "text": "Great Cafe inside here, could be a little pricey but the food is good and there's other essential grocery items you could get. Lots of places to study or have lunch with others. Few seating areas around the outside of the building as well.",
+        "relative_time": "7 months ago"
+      },
+      {
+        "author": "Bhaarat Vyas",
+        "rating": 5,
+        "text": "We visited the Centre for the YBE 2023 event. Excellent ambience and wonderful arrangements for the event.",
+        "relative_time": "2 years ago"
+      }
+    ]
+  },
   "osm:2108342524": {
     "website": "https://scl.cornell.edu/bear-necessities-grill-c-store",
     "phone": "(607) 254-8227",
@@ -5747,7 +5783,8 @@
         "text": "Jessie is the best!  Turning 70 and looking in the mirror at all my grey hair I decided it was time to dye my hair.  But I didn't want to use harmful products.  Also, I have curly hair and after years of having my husband cut my hair I decided to get a nice cut before my daughter's wedding.  I was so lucky to discover Jessie's place.  I feel years younger!    She made the whole process enjoyable and my hair looks and feels fantastic. I feel years younger.",
         "relative_time": "3 years ago"
       }
-    ]
+    ],
+    "address": "215 N Cayuga St # 79, Ithaca, NY 14850"
   },
   "osm:5840567906": {
     "website": null,
@@ -6569,7 +6606,8 @@
         "text": "Authentic and satisfying! It\u2019s such a treat to find a place that serves real Xi\u2019an food\u2014hand-pulled noodles and lamb jiamo that are bold, spicy, and deeply seasoned. You can taste the freshness of the dough, and the chili oil has real flavor, not just heat. The lamb sandwich was juicy and fragrant, packed with green pepper and cumin.\n\nThe interior is simple and functional, but even during the quiet summer break, the place was buzzing with students and regulars. That says a lot. Highly recommend if you\u2019re craving Northwestern Chinese comfort food done right.",
         "relative_time": "8 months ago"
       }
-    ]
+    ],
+    "address": "120 Dryden Rd, Ithaca, NY 14850"
   },
   "osm:7564130691": {
     "website": "https://greenstar.coop/",
@@ -7583,7 +7621,18 @@
       }
     ]
   },
-  "osm:8796624109": null,
+  "osm:8796624109": {
+    "website": "https://www.instagram.com/sparks_embers/",
+    "phone": null,
+    "hours": null,
+    "rating": null,
+    "rating_count": null,
+    "price_level": null,
+    "photo_url": null,
+    "reviews": null,
+    "description": "A curated lifestyle boutique in Press Bay Alley specializing in apparel, jewelry, candles, and skincare from independent, women-owned brands. Focuses on sustainable and unique goods with a personalized shopping experience.",
+    "address": "118 W Green St, Suite 3, Ithaca, NY 14850"
+  },
   "osm:8796624340": {
     "website": null,
     "phone": null,
@@ -8633,7 +8682,26 @@
       }
     ]
   },
-  "osm:8796636524": null,
+  "osm:8796636524": {
+    "website": "https://www.cateringbyluna.com",
+    "phone": "(607) 882-4529",
+    "hours": [
+      "Monday: 11 AM\u201311 PM",
+      "Tuesday: 11 AM\u201311 PM",
+      "Wednesday: 11 AM\u201311 PM",
+      "Thursday: 11 AM\u20131:30 AM",
+      "Friday: 11 AM\u20131:30 AM",
+      "Saturday: 11 AM\u20131:30 AM",
+      "Sunday: 11 AM\u201311 PM"
+    ],
+    "rating": null,
+    "rating_count": null,
+    "price_level": null,
+    "photo_url": null,
+    "reviews": null,
+    "previous_name": "Luna Inspired Street Food",
+    "address": "310 Stewart Ave, Ithaca, NY 14850"
+  },
   "osm:8796636693": {
     "website": "http://wellbeingpeds.com/",
     "phone": "(607) 602-2083",
@@ -12654,11 +12722,30 @@
       "Saturday: 10:00\u202fAM\u2009\u2013\u20092:00\u202fPM",
       "Sunday: Closed"
     ],
-    "rating": null,
-    "rating_count": null,
+    "rating": 5,
+    "rating_count": 13,
     "price_level": null,
-    "photo_url": "https://places.googleapis.com/v1/places/ChIJK8fFSR152okR_OBUhlzQ1C4/photos/AU_ZVEH9nRDTse3tTV6tB6_056v4WrCc3gLWbefgcnSfS-a9ELgvJrXHAix0U8-h0QZ83zCkwbnM3EA9IbBqFRHi2sAlmtdbkiT1YTqBR4neTHB1OZbYzYza8iwCJ3YC2LBQdIMHFLG7ibm_fXqZjd4gvHQ0mQ-J3B-0gfLyanUlNyEJIB2Zh9YszLpOgHzLPIRLJSjwBDzoUU4cRN1qKdUTLFpH4_q4Yi-5pKXhXs9q7ihsRXuJXiDjKTKnCYmY8W2nCH4qVC1Efg7n36TOoo7RlzxzPrpgwuocC14-ribhseUhSKhxjKNuAazMvQCRDMuBn2o76NoKWde4UH5yTP8sl3s5bruG5BvkF_5J8dLh3FVUrIpHIm2FCAXqSxGwPFpc6iYNZkAZ-Lws3ELL65ebSaPq_Lzk2FHXHsfjEPg_WTkY1HkaiJKA2bQUeSov4mE1/media?maxHeightPx=400&maxWidthPx=600&key=AIzaSyCm79aaj55QH44dDFv7pDp2UhHd-4OFors",
-    "reviews": null
+    "photo_url": "https://places.googleapis.com/v1/places/ChIJK8fFSR152okR_OBUhlzQ1C4/photos/AU_ZVEFaIW9LqnHWNsFwDoK1oR2QggHyZdz6i2Sg6h4eHACnPdgUtYb1z8QT23z2QqkclWIFIjeaJOCmmZ_DkfnrYoH-UjwCxZgzDrR6SEOkTkRrvFSuPz1KFIX0iTaVyL7rW6oYkEdAtNga5NUfHS1RlkeYPeprjo4fWMbKakyxz7WiOWhnnoIrB2TzugepLyVALXOZVaVZdlJVRyu3DpN2H01BEyqKlAkDAoRPwrw-5eV7bX5AQWBShtqWBWg8azbo2dieIT5ACEWCKgnaPPH5xh4Qx7GGpNtgS7B9Yz6HoY06WQky-gvEsTKwIW6twbz7Bngxv9TnQwjBT9nBxv_Bv5iac0AMD-YhS1cS2iRORRLB02h-h1zj24IUKqDqPGG2jNPb5EGL8P3_MdI_BsDX0yTtxqo5kltw7P1YofAnqGuC0J53miQddXXVHwNXp4s5/media?maxHeightPx=400&maxWidthPx=600&key=AIzaSyCm79aaj55QH44dDFv7pDp2UhHd-4OFors",
+    "reviews": [
+      {
+        "author": "Casey",
+        "rating": 5,
+        "text": "Working with Terrapin Tile was truly a pleasure. The entire project was smooth sailing. Martha  patiently helped me explore the various tile options and shades of blues and greens. She made sure our kitchen backsplash would work in our space and reflect our love of nature. Tom was responsive and easy to communicate with. Matt installed the tiles in less than 2 days. He was kind, personable, and did a fantastic job. Highly recommend working with this team.",
+        "relative_time": "9 months ago"
+      },
+      {
+        "author": "Cynthia Mathys",
+        "rating": 5,
+        "text": "Terrapin Tile did a spectacular job on our kitchen renovation. We did new floor tile, countertops and backsplash. Tom and Martha gave us wonderful advice on tile size, color and style of tiles for the floor and backsplash, and Tom's installation team gave us a beautiful result. Brian and his team installed a the perfect quartz countertop and a luxurious new sink. The renovation was worth every penny, and it wasn't nearly many pennies as I might have expected. :)  Highly recommend!",
+        "relative_time": "9 months ago"
+      },
+      {
+        "author": "Guven Ince",
+        "rating": 5,
+        "text": "From the front desk consultation to the tiling itself, they did a fantastic bathroom tiling job for us. Everyone we interacted with was both friendly and professional throughout.",
+        "relative_time": "6 months ago"
+      }
+    ]
   },
   "osm:12020652598": {
     "website": "https://www.miltonrents.com/locations/ny/ithaca-ny/?type=local&category=rents-ithaca",
@@ -22494,7 +22581,43 @@
       }
     ]
   },
-  "dining:dining_2108342502": null,
+  "dining:dining_2108342502": {
+    "website": "http://www.cornell.edu/",
+    "phone": "(607) 255-6214",
+    "hours": [
+      "Monday: 8:00\u202fAM\u2009\u2013\u20092:00\u202fAM",
+      "Tuesday: 8:00\u202fAM\u2009\u2013\u20092:00\u202fAM",
+      "Wednesday: 8:00\u202fAM\u2009\u2013\u20092:00\u202fAM",
+      "Thursday: 8:00\u202fAM\u2009\u2013\u20092:00\u202fAM",
+      "Friday: 8:00\u202fAM\u2009\u2013\u20092:00\u202fAM",
+      "Saturday: 8:00\u202fAM\u2009\u2013\u20092:00\u202fAM",
+      "Sunday: 8:00\u202fAM\u2009\u2013\u20092:00\u202fAM"
+    ],
+    "rating": 4.4,
+    "rating_count": 301,
+    "price_level": null,
+    "photo_url": "https://places.googleapis.com/v1/places/ChIJI-ZCXxiC0IkRQsIvu40I6L4/photos/AU_ZVEEqh36YKjH0ZjijPClL9G1NLlexTj6n5doQsFeMCqShDEzQI3-XO2Kn1dLAA_Yl_3iQTrqpZsJccgmbykE0yUMDEy69DNEH5dLgDg0CwSmoaOTK4ZfroEZ5-HUV0hZ0fddvllUlfqQJJXQdCAun3QTb8o6Q-jGhS2_EQUJTWkmtD-CDPDOM4GvWBY3zvBhyzvK7Y4_U-l70Mp3WlENh0lsn9M0tVjAzZH-NgI9wut8q_T_AhDB8Zhu7hw4g1FSCQAYrqRilIO9ZFezKna2sOTOlDQoKqR5T5IivWTkBrMOqepYaAiK6tPumS7C_Haxm8Kh_Hyw4e_5EgYMc8bBs3ca7FNu_jT5Zl-NyccHpsZbSmKLPUpvZvqW68qxlQ0TrzMLnqX1mAsEr2A9ufpzaxEBHb9_yT3P-tlJg22pzy5U/media?maxHeightPx=400&maxWidthPx=600&key=AIzaSyCm79aaj55QH44dDFv7pDp2UhHd-4OFors",
+    "reviews": [
+      {
+        "author": "Edel Lopez",
+        "rating": 5,
+        "text": "Beautiful and practical space highly recommended to prepare conferences. The staff is amazing and super effective!",
+        "relative_time": "3 years ago"
+      },
+      {
+        "author": "caitlin spry",
+        "rating": 5,
+        "text": "Great Cafe inside here, could be a little pricey but the food is good and there's other essential grocery items you could get. Lots of places to study or have lunch with others. Few seating areas around the outside of the building as well.",
+        "relative_time": "7 months ago"
+      },
+      {
+        "author": "Bhaarat Vyas",
+        "rating": 5,
+        "text": "We visited the Centre for the YBE 2023 event. Excellent ambience and wonderful arrangements for the event.",
+        "relative_time": "2 years ago"
+      }
+    ]
+  },
   "dining:dining_2108342530": {
     "website": "https://www.carolscoffeeandartbar.com/",
     "phone": "(607) 687-1436",

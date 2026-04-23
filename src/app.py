@@ -78,6 +78,7 @@ VOCAB = set()
 PREPROCESSING_STATS = {}
 VOCAB_TERMS = []
 TERM_INDEX = {}
+INVERTED_INDEX = {}  # term -> [doc_idx, ...] for fast candidate pre-filtering
 SVD_COMPONENTS = None
 SVD_SINGULAR_VALUES = None
 DOC_LATENT_MATRIX = None
@@ -1173,7 +1174,7 @@ def summarize_query_latent_profile(query_latent, top_n=3):
 
 
 def build_search_index():
-    global SEARCH_DOCS, IDF, VOCAB, VOCAB_TERMS, TERM_INDEX, LATENT_DOC_INDEX
+    global SEARCH_DOCS, IDF, VOCAB, VOCAB_TERMS, TERM_INDEX, LATENT_DOC_INDEX, INVERTED_INDEX
 
     docs = []
     docs.extend(load_campusgroups_documents())
@@ -1253,6 +1254,14 @@ def build_search_index():
     VOCAB_TERMS = sorted(VOCAB)
     TERM_INDEX = {term: idx for idx, term in enumerate(VOCAB_TERMS)}
     LATENT_DOC_INDEX = {}
+
+    # Build inverted index: term -> sorted list of doc indices that contain it.
+    # Lets search_documents skip zero-scoring docs without scoring them at all.
+    inv = defaultdict(list)
+    for i, doc in enumerate(indexed_docs):
+        for term in doc["_token_counts"]:
+            inv[term].append(i)
+    INVERTED_INDEX = dict(inv)
 
     if indexed_docs and VOCAB_TERMS:
         structured_doc_rows = []
@@ -1533,7 +1542,14 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
             return "trail" in txt or "park" in txt or "gorge" in txt or "waterfall" in txt or "nature" in txt or d.get("source") == "trails"
         return True
 
-    for doc_idx, doc in enumerate(SEARCH_DOCS):
+    # Use the inverted index to get only docs that share at least one query term.
+    # Any doc with no term overlap scores 0 anyway, so we can safely skip them.
+    candidate_doc_indices = set()
+    for term in query_terms:
+        candidate_doc_indices.update(INVERTED_INDEX.get(term, []))
+
+    for doc_idx in candidate_doc_indices:
+        doc = SEARCH_DOCS[doc_idx]
         if not is_in_area(area, doc):
             continue
 
