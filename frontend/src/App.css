@@ -945,6 +945,10 @@
   text-overflow: ellipsis;
 }
 
+.episode-desc.reddit-truncated {
+  -webkit-line-clamp: 2;
+}
+
 .results-load-sentinel {
   display: flex;
   justify-content: center;
