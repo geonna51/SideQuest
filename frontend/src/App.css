@@ -230,6 +230,18 @@
   font-weight: 700;
 }
 
+.about-chip-clickable {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.about-chip-clickable:hover {
+  background: rgba(179, 27, 27, 0.16);
+  border-color: var(--cornell-red);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px -4px rgba(179, 27, 27, 0.3);
+}
+
 /* ── Search bar ────────────────────────────────────────────────────────────── */
 
 .input-box {

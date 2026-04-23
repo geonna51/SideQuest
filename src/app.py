@@ -3,7 +3,6 @@ import math
 import os
 import re
 import sys
-import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import preprocessing
 import logging
@@ -1777,7 +1776,7 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
                 rating_bonus = (rating - 3.0) / 2.0 * 0.05 * confidence
                 result["score"] = round(result["score"] + rating_bonus, 6)
 
-    top_structured.sort(key=lambda x: x["score"], reverse=True)
+    deduped.sort(key=lambda x: x["score"], reverse=True)
 
     if not deduped and reddit_results:
         return reddit_results[:top_k], query_profile, ("svd" if use_svd else "tfidf")

@@ -332,7 +332,7 @@ function App(): JSX.Element {
     }
 
     try {
-      let apiUrl = `/api/search?q=${encodeURIComponent(composedQuery)}&raw_q=${encodeURIComponent(value.trim())}&source=${encodeURIComponent(selectedSource)}&mode=${encodeURIComponent(selectedMode)}&future_only=${selectedFutureOnly}&reddit=${selectedIncludeReddit}&top_k=30`
+      let apiUrl = `/api/search?q=${encodeURIComponent(composedQuery)}&raw_q=${encodeURIComponent(value.trim())}&source=${encodeURIComponent(selectedSource)}&mode=${encodeURIComponent(selectedMode)}&future_only=${selectedFutureOnly}&reddit=${selectedIncludeReddit}&area=${encodeURIComponent(selectedArea)}&top_k=30`
       if (selectedDateFrom) apiUrl += `&date_from=${encodeURIComponent(selectedDateFrom)}`
       if (selectedDateTo) apiUrl += `&date_to=${encodeURIComponent(selectedDateTo)}`
       apiUrl += `&include_summary=${includeSummary ? '1' : '0'}`
@@ -791,12 +791,19 @@ function App(): JSX.Element {
         <article className="about-card">
           <h3 className="about-card-title">Good example searches</h3>
           <div className="about-chip-row">
-            <span className="about-chip">study spots</span>
-            <span className="about-chip">late night food</span>
-            <span className="about-chip">weekend activities</span>
-            <span className="about-chip">quiet cafes</span>
-            <span className="about-chip">outdoor hikes</span>
-            <span className="about-chip">cheap eats in Collegetown</span>
+            {['study spots', 'late night food', 'weekend activities', 'quiet cafes', 'outdoor hikes', 'cheap eats in Collegetown'].map((term) => (
+              <button
+                key={term}
+                className="about-chip about-chip-clickable"
+                onClick={() => {
+                  setSearchInput(term)
+                  navigateToPage('search')
+                  void handleSearch(term)
+                }}
+              >
+                {term}
+              </button>
+            ))}
           </div>
         </article>
       </div>
@@ -899,8 +906,8 @@ function App(): JSX.Element {
         {!loading && !error && searchTerm.trim() !== '' && (
           <div className="mode-summary-card">
             {rewrittenQuery && (
-              <div className="rewritten-query-note" style={{ marginBottom: '12px', padding: '8px', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: '6px' }}>
-                <strong style={{ color: '#ffb6b6' }}>RAG Query Rewrite:</strong> Using <em>"{rewrittenQuery}"</em>
+              <div className="rewritten-query-note" style={{ marginBottom: '12px', padding: '8px', backgroundColor: 'rgba(179, 27, 27, 0.06)', borderRadius: '6px' }}>
+                <strong style={{ color: 'var(--cornell-red-deep)' }}>RAG Query Rewrite:</strong> Using <em>"{rewrittenQuery}"</em>
               </div>
             )}
             <p className="mode-summary-label">
@@ -1223,7 +1230,11 @@ function App(): JSX.Element {
                 )}
                 {chatMessages.map((msg, i) => (
                   <div key={i} className={`chat-bubble ${msg.isUser ? 'user' : 'assistant'}`}>
-                    <p>{msg.text}</p>
+                    {msg.isUser ? (
+                      <p>{msg.text}</p>
+                    ) : (
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
+                    )}
                   </div>
                 ))}
                 {chatLoading && (
