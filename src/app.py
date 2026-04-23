@@ -98,6 +98,15 @@ def get_llm_client():
     return LLMClient(api_key=api_key), api_key
 
 
+def get_llm_status():
+    api_key = os.getenv("SPARK_API_KEY")
+    if not api_key:
+        return False, "AI features are unavailable because SPARK_API_KEY is not set."
+    if LLMClient is None:
+        return False, "AI features are unavailable because the Spark client dependency is not installed."
+    return True, None
+
+
 # -----------------------------
 # Helpers
 # -----------------------------
@@ -129,6 +138,32 @@ def parse_event_date(start_time_str: str):
         return datetime.strptime(match.group(), '%d %B %Y')
     except ValueError:
         return None
+
+
+def parse_event_datetime(start_time_str: str):
+    """Parse a CampusGroups-style start_time into a full datetime when possible."""
+    if not start_time_str:
+        return None
+
+    match = re.search(
+        r'(\d{1,2})\s+(\w+)\s+(\d{4})(?:.*?\b(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\b)?',
+        start_time_str,
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+
+    try:
+        if match.group(4):
+            minute = match.group(5) or "00"
+            meridiem = match.group(6).upper()
+            return datetime.strptime(
+                f"{match.group(1)} {match.group(2)} {match.group(3)} {match.group(4)}:{minute} {meridiem}",
+                "%d %B %Y %I:%M %p",
+            )
+        return datetime.strptime(f"{match.group(1)} {match.group(2)} {match.group(3)}", "%d %B %Y")
+    except ValueError:
+        return parse_event_date(start_time_str)
 
 
 def first_nonempty(record, *keys):
@@ -175,6 +210,123 @@ FOOD_ITEM_TERMS = {
 
 MOVIE_QUERY_TERMS = {"movie", "movies", "film", "films"}
 MOVIE_QUERY_EXPANSIONS = {"cinema", "theater", "theatre", "screening"}
+COFFEE_LOCATION_TERMS = {
+    "cafe",
+    "cafes",
+    "coffee",
+    "espresso",
+    "latte",
+    "roaster",
+    "roasters",
+    "tea",
+}
+GAMING_QUERY_TERMS = {
+    "arcade",
+    "esport",
+    "esports",
+    "game",
+    "gaming",
+    "tabletop",
+}
+GAMING_LOCATION_TERMS = {
+    "arcade",
+    "board",
+    "esport",
+    "esports",
+    "fight",
+    "fighter",
+    "game",
+    "gaming",
+    "tabletop",
+}
+SPORT_FITNESS_TERMS = {
+    "athletic",
+    "athletics",
+    "badminton",
+    "basketball",
+    "climb",
+    "climbing",
+    "court",
+    "courts",
+    "fitness",
+    "gym",
+    "hoop",
+    "hoops",
+    "pickup",
+    "pickleball",
+    "play",
+    "recreation",
+    "rec",
+    "soccer",
+    "sport",
+    "sports",
+    "squash",
+    "swim",
+    "swimming",
+    "tennis",
+    "volleyball",
+    "workout",
+}
+SPORT_LOCATION_TERMS = {
+    "athletic",
+    "athletics",
+    "badminton",
+    "basketball",
+    "court",
+    "courts",
+    "fitness",
+    "gym",
+    "gymnasium",
+    "hoops",
+    "pickup",
+    "recreation",
+    "sport",
+    "sports",
+    "sports_centre",
+    "volleyball",
+}
+CAMPUS_LOCATION_HINTS = {
+    "campus",
+    "campus road",
+    "central campus",
+    "cornell",
+    "cradit farm",
+    "east ave",
+    "north campus",
+    "tower road",
+    "university",
+    "west ave",
+    "west campus",
+}
+SPORT_ACTIVITY_TERMS = {
+    "badminton",
+    "basketball",
+    "court",
+    "courts",
+    "hoop",
+    "hoops",
+    "pickup",
+    "play",
+    "soccer",
+    "squash",
+    "swim",
+    "swimming",
+    "tennis",
+    "volleyball",
+}
+LOW_SIGNAL_OSM_CATEGORIES = {"building", "highway", "public_transport"}
+LOW_SIGNAL_OSM_CATEGORY_SUBCATEGORY = {
+    ("amenity", "bicycle_parking"),
+    ("amenity", "bench"),
+    ("amenity", "parking_entrance"),
+    ("amenity", "parking_space"),
+    ("amenity", "waste_basket"),
+    ("amenity", "vending_machine"),
+}
+NOISY_CAMPUSGROUP_CATEGORY_STRINGS = {
+    "open meeting, esports, gaming, free, fun",
+    "open event, gaming, free, fun, community, food/drink",
+}
 
 
 def normalize_for_key(text):
@@ -198,6 +350,84 @@ def append_unique_text(base_text, extra_text):
 def is_generic_location(text):
     normalized = normalize_whitespace(text).lower()
     return normalized in {"", "ithaca area", "cornell campus area", "greater ithaca / tompkins area"}
+
+
+def get_doc_lat_lon(doc):
+    raw = doc.get("raw", {})
+    try:
+        doc_lat = float(raw.get("lat") or raw.get("latitude") or 0) or None
+        doc_lon = float(raw.get("lon") or raw.get("longitude") or 0) or None
+    except (ValueError, TypeError):
+        return None, None
+    return doc_lat, doc_lon
+
+
+def is_probably_on_campus(doc):
+    text_blob = " ".join([
+        doc.get("title", ""),
+        doc.get("location", ""),
+        doc.get("description", ""),
+        doc.get("category", ""),
+    ]).lower()
+    if any(token in text_blob for token in CAMPUS_LOCATION_HINTS):
+        return True
+
+    doc_lat, doc_lon = get_doc_lat_lon(doc)
+    if doc_lat is None or doc_lon is None:
+        return False
+
+    return 42.435 <= doc_lat <= 42.4615 and -76.4925 <= doc_lon <= -76.458
+
+
+def is_in_area(area_val, doc):
+    if area_val == "any":
+        return True
+
+    text_blob = " ".join([
+        doc.get("location", ""),
+        doc.get("description", ""),
+        doc.get("category", ""),
+    ]).lower()
+
+    if area_val == "campus":
+        return is_probably_on_campus(doc) or doc.get("source") in {"libraries", "dining", "recs"}
+    if area_val == "collegetown":
+        return "collegetown" in text_blob or "college ave" in text_blob or "dryden" in text_blob or "eddy" in text_blob
+    if area_val == "downtown":
+        return any(token in text_blob for token in ["downtown", "commons", "state st", "aurora", "seneca", "tioga"])
+    if area_val == "nature":
+        return any(token in text_blob for token in ["trail", "park", "gorge", "waterfall", "nature"]) or doc.get("source") == "trails"
+    return True
+
+
+def passes_temporal_filters(item, future_only=True, date_from=None, date_to=None):
+    if item.get("source") != "campusgroups":
+        return True
+
+    start_time = item.get("start_time", "")
+
+    if future_only:
+        event_dt = parse_event_datetime(start_time)
+        if event_dt is not None and event_dt < datetime.now():
+            return False
+
+    if date_from or date_to:
+        event_date = parse_event_date(start_time)
+        if event_date is not None:
+            if date_from and event_date < date_from:
+                return False
+            if date_to and event_date > date_to:
+                return False
+
+    return True
+
+
+def is_low_signal_osm_record(category, subcategory):
+    category = normalize_whitespace(category).lower()
+    subcategory = normalize_whitespace(subcategory).lower()
+    if category in LOW_SIGNAL_OSM_CATEGORIES:
+        return True
+    return (category, subcategory) in LOW_SIGNAL_OSM_CATEGORY_SUBCATEGORY
 
 
 def parse_hour_from_text(text):
@@ -247,8 +477,14 @@ def expand_query_tokens(query_tokens):
             expanded.extend(["food", "restaurant", "cafe", "dining"])
     if query_intents["cheap"]:
         expanded.extend(["cheap", "budget", "budget_friendly"])
+    if query_intents["gaming"]:
+        expanded.extend(["gaming", "game", "esports", "tabletop", "club"])
     if query_intents["fitness"]:
-        expanded.extend(["fitness", "group_fitness", "athletics"])
+        expanded.extend(["fitness", "group_fitness", "athletics", "gym"])
+        if token_set & SPORT_ACTIVITY_TERMS:
+            expanded.extend(["basketball", "court", "sports", "sports_centre"])
+        else:
+            expanded.extend(["recreation"])
     if token_set & MOVIE_QUERY_TERMS:
         expanded.extend(sorted(MOVIE_QUERY_EXPANSIONS))
 
@@ -321,11 +557,13 @@ def infer_query_intents(query_tokens):
     study_intent = bool({"study", "quiet", "library", "reading", "focus"} & query_tokens)
     late_intent = bool({"late", "night", "midnight", "open", "after", "dark"} & query_tokens)
     social_intent = bool({"social", "group", "club", "event", "meet", "meeting", "people"} & query_tokens)
+    gaming_intent = bool(query_tokens & GAMING_QUERY_TERMS) or ("board" in query_tokens and "game" in query_tokens)
     return {
         "food": bool({"food", "dining", "restaurant", "eat", "lunch", "dinner", "breakfast", "coffee", "cafe"} & query_tokens) or bool(query_tokens & FOOD_ITEM_TERMS),
         "coffee": bool({"coffee", "espresso", "latte", "cafe"} & query_tokens),
         "cheap": bool({"cheap", "budget", "affordable", "low", "cost", "free"} & query_tokens),
-        "fitness": bool({"gym", "workout", "fitness", "exercise", "active", "sport"} & query_tokens),
+        "gaming": gaming_intent,
+        "fitness": bool(query_tokens & SPORT_FITNESS_TERMS) or bool({"exercise", "active"} & query_tokens),
         "late_night": late_intent,
         "study_friendly": study_intent,
         "social": social_intent,
@@ -350,6 +588,17 @@ def compute_intent_alignment_adjustment(query_intents, doc):
             adjustment += 0.06
     if query_intents["social"] and source == "campusgroups" and doc_type == "event":
         adjustment += 0.12
+    if query_intents["gaming"]:
+        text_blob = " ".join([
+            doc.get("title", ""),
+            doc.get("description", ""),
+            doc.get("category", ""),
+            doc.get("organization", ""),
+        ]).lower()
+        if source == "campusgroups" and any(token in text_blob for token in GAMING_LOCATION_TERMS):
+            adjustment += 0.22
+        elif source in {"osm", "dining", "libraries", "cafes", "trails", "recs"}:
+            adjustment -= 0.14
     if query_intents["food"] and query_intents["social"]:
         category = normalize_whitespace(doc.get("category", "")).lower()
         if source == "campusgroups" and ("food/drink" in category or "social" in category):
@@ -369,10 +618,24 @@ def compute_intent_alignment_adjustment(query_intents, doc):
         else:
             adjustment -= 0.08
     if query_intents["fitness"]:
+        text_blob = " ".join([
+            doc.get("title", ""),
+            doc.get("description", ""),
+            doc.get("category", ""),
+            doc.get("location", ""),
+        ]).lower()
+        has_sports_signal = any(token in text_blob for token in SPORT_LOCATION_TERMS)
+        looks_like_class = "class" in text_blob or "instructor:" in text_blob
         if source == "recs":
             adjustment += 0.2
+            if query_intents["place_like"] and looks_like_class:
+                adjustment -= 0.18
+        elif source == "osm" and has_sports_signal:
+            adjustment += 0.14
         elif source == "osm":
-            adjustment -= 0.05
+            adjustment -= 0.16
+        elif source in {"dining", "libraries", "cafes"}:
+            adjustment -= 0.16
     if query_intents["late_night"]:
         adjustment += (late_signal * 0.2) - 0.02
     if query_intents["study_friendly"]:
@@ -422,6 +685,25 @@ def is_food_relevant_doc(doc):
     ])
 
 
+def is_coffee_relevant_doc(doc):
+    source = doc.get("source", "")
+    if source == "cafes":
+        return True
+
+    raw = doc.get("raw", {}) if isinstance(doc.get("raw"), dict) else {}
+    subcategory = normalize_whitespace(raw.get("subcategory", "")).lower()
+    text_blob = " ".join([
+        doc.get("title", ""),
+        doc.get("description", ""),
+        doc.get("category", ""),
+        doc.get("location", ""),
+    ]).lower()
+
+    if subcategory in {"cafe", "coffee", "coffee_shop", "bakery"}:
+        return True
+    return any(token in text_blob for token in COFFEE_LOCATION_TERMS)
+
+
 def compute_metadata_adjustment(query_tokens, doc):
     """
     Applies small ranking nudges based on metadata quality and intent alignment.
@@ -436,7 +718,11 @@ def compute_metadata_adjustment(query_tokens, doc):
     if category.startswith("private"):
         adjustment -= 0.15
 
-    if title in GENERIC_EVENT_TITLES or len(title.split()) <= 1:
+    if title in GENERIC_EVENT_TITLES:
+        adjustment -= 0.1
+        if query_tokens & GAMING_QUERY_TERMS or ("board" in query_tokens and "game" in query_tokens):
+            adjustment -= 0.08
+    elif len(title.split()) <= 1:
         adjustment -= 0.1
 
     if {"food", "dining", "restaurant", "eat", "lunch", "dinner"} & query_tokens:
@@ -461,6 +747,26 @@ def compute_metadata_adjustment(query_tokens, doc):
             adjustment += 0.1
         if "trail" in title or "waterfall" in title or "nature" in title:
             adjustment += 0.08
+
+    if query_tokens & SPORT_FITNESS_TERMS:
+        text_blob = " ".join([
+            title,
+            category,
+            location,
+            normalize_whitespace(doc.get("description", "")).lower(),
+            normalize_whitespace(doc.get("organization", "")).lower(),
+        ])
+        has_sports_signal = any(token in text_blob for token in SPORT_LOCATION_TERMS)
+        if has_sports_signal:
+            adjustment += 0.16
+            if query_tokens & {"basketball", "court", "courts", "hoop", "hoops"} and (
+                "basketball" in text_blob or "court" in text_blob
+            ):
+                adjustment += 0.08
+        elif source == "osm":
+            adjustment -= 0.16
+        elif source in {"dining", "libraries", "cafes"}:
+            adjustment -= 0.12
 
     if {"collegetown", "downtown", "campus", "ithaca"} & query_tokens:
         overlap = sum(1 for token in query_tokens if token in location)
@@ -580,11 +886,30 @@ def build_lookup_from_json(payload):
 # -----------------------------
 # CampusGroups loading
 # -----------------------------
+def clean_campusgroups_category(title, description, organization, category):
+    category_text = normalize_whitespace(category)
+    if not category_text:
+        return ""
+
+    category_key = category_text.lower()
+    if category_key not in NOISY_CAMPUSGROUP_CATEGORY_STRINGS:
+        return category_text
+
+    text_blob = " ".join([title, description, organization]).lower()
+    if any(token in text_blob for token in GAMING_LOCATION_TERMS):
+        return category_text
+
+    # Some CampusGroups exports contain repeated misaligned gaming tags on
+    # unrelated events; drop them so the IR index stays grounded.
+    return ""
+
+
 def normalize_campusgroup_record(record, idx):
     title = first_nonempty(record, "title", "name", "event_name", "summary")
     description = first_nonempty(record, "description", "descr", "details", "body", "content", "about")
     organization = first_nonempty(record, "organization", "org", "group", "club", "host", "organization_name")
     category = first_nonempty(record, "category", "categories", "tags", "tag", "event_type", "type")
+    category = clean_campusgroups_category(title, description, organization, category)
     location = first_nonempty(record, "location", "place", "venue", "room", "building")
     start_time = first_nonempty(record, "start_time", "start", "date", "start_date", "datetime", "event_date")
     end_time = first_nonempty(record, "end_time", "end", "end_date")
@@ -839,6 +1164,9 @@ def load_generic_csv_documents(csv_path, source_name):
             subcategory = row.get("subcategory", "").strip()
             address = row.get("address", "").strip() or row.get("location", "").strip()
             db_desc = row.get("description", "").strip()
+
+            if source_name == "osm" and is_low_signal_osm_record(category, subcategory):
+                continue
 
             if not db_desc and source_name == "osm":
                 db_desc = _osm_template_description(title, category, subcategory)
@@ -1332,7 +1660,18 @@ def cosine_similarity(query_vec, query_norm, doc_vec, doc_norm):
     return dot_product_sparse(query_vec, doc_vec) / (query_norm * doc_norm)
 
 
-def keyword_fallback_search(query, top_k=10, allowed_sources=None, expanded_query=None, include_reddit=True):
+def keyword_fallback_search(
+    query,
+    top_k=10,
+    allowed_sources=None,
+    expanded_query=None,
+    include_reddit=True,
+    area="any",
+    future_only=True,
+    date_from=None,
+    date_to=None,
+    query_intents=None,
+):
     query_tokens = set(normalized_query_tokens(query, restrict_to_vocab=False))
     expanded_query_tokens = set(expand_query_tokens(list(query_tokens)))
     if expanded_query:
@@ -1348,6 +1687,14 @@ def keyword_fallback_search(query, top_k=10, allowed_sources=None, expanded_quer
         if source == "reddit" and not include_reddit:
             continue
         if allowed_sources and source not in allowed_sources and source != "reddit":
+            continue
+        if not is_in_area(area, doc):
+            continue
+        if not passes_temporal_filters(doc, future_only=future_only, date_from=date_from, date_to=date_to):
+            continue
+        if query_intents and query_intents.get("food") and source in {"osm", "libraries"} and not is_food_relevant_doc(doc):
+            continue
+        if query_intents and query_intents.get("coffee") and source in {"osm", "dining", "cafes"} and not is_coffee_relevant_doc(doc):
             continue
 
         title_tokens = set(tokenize(doc.get("title", "")))
@@ -1435,6 +1782,9 @@ def keyword_fallback_search(query, top_k=10, allowed_sources=None, expanded_quer
             "reddit_snippet": None,
             "search_mode": "keyword_fallback",
             "matched_dimensions": [],
+            "lat": get_doc_lat_lon(doc)[0],
+            "lon": get_doc_lat_lon(doc)[1],
+            "places_data": None,
         })
 
     results.sort(key=lambda item: item["score"], reverse=True)
@@ -1457,25 +1807,19 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
     allowed_sources = source_mapping.get(source, source_mapping["all"])
     query_tokens = set(normalized_query_tokens(query, restrict_to_vocab=False))
     query_intents = infer_query_intents(query_tokens)
-    if source == "all":
-        if query_intents["food"] and not query_intents["social"]:
-            allowed_sources = {"dining", "osm", "cafes"}
-        elif {"hike", "trail", "waterfall", "nature", "outdoor"} & query_tokens:
-            allowed_sources = {"trails", "osm"}
-        elif {"gym", "workout", "fitness", "exercise", "active"} & query_tokens:
-            allowed_sources = {"recs", "osm"}
-        elif query_intents["nightlife"] and query_intents["social"]:
-            allowed_sources = {"cafes", "campusgroups", "osm"}
-        elif query_intents["place_like"] and (query_intents["study_friendly"] or query_intents["late_night"]) and not query_intents["social"]:
-            allowed_sources = {"osm", "dining", "libraries", "cafes"}
-
-    primary_query_tokens = normalized_query_tokens(original_query, restrict_to_vocab=False)
-    expanded_query_tokens = normalized_query_tokens(query, restrict_to_vocab=False)
-    has_primary_vocab_overlap = any(token in VOCAB for token in primary_query_tokens)
-    has_expanded_vocab_overlap = any(token in VOCAB for token in expanded_query_tokens)
+    if source == "all" and query_intents["food"] and not query_intents["social"]:
+        # Specific food-item queries like "chicken" or "ramen" behave much
+        # better when we keep retrieval focused on dining/place sources.
+        allowed_sources = {"dining", "osm", "cafes"}
+    elif source == "all" and query_intents["fitness"] and not query_intents["social"]:
+        # Sport/activity queries like "play basketball" should stay focused on
+        # recreation facilities and sports locations rather than generic campus places.
+        allowed_sources = {"recs", "osm"}
 
     primary_query_vec, primary_query_norm = build_query_vector(original_query)
     expanded_query_vec, expanded_query_norm = build_query_vector(query)
+    has_primary_vocab_overlap = bool(primary_query_vec)
+    has_expanded_vocab_overlap = bool(expanded_query_vec)
 
     if query != original_query:
         query_vec = blend_sparse_vectors(primary_query_vec, expanded_query_vec)
@@ -1490,7 +1834,12 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
             top_k=top_k,
             allowed_sources=allowed_sources,
             expanded_query=query if query != original_query else None,
-            include_reddit=include_reddit
+            include_reddit=include_reddit,
+            area=area,
+            future_only=future_only,
+            date_from=date_from,
+            date_to=date_to,
+            query_intents=query_intents,
         )
         if fallback_results:
             return fallback_results, {"positive": [], "negative": []}, "keyword_fallback"
@@ -1519,28 +1868,6 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
     structured_candidates = []
     reddit_results = []
 
-    def extract_lat_lon(doc):
-        raw = doc.get("raw", {})
-        try:
-            doc_lat = float(raw.get("lat") or raw.get("latitude") or 0) or None
-            doc_lon = float(raw.get("lon") or raw.get("longitude") or 0) or None
-        except (ValueError, TypeError):
-            doc_lat, doc_lon = None, None
-        return doc_lat, doc_lon
-
-    def is_in_area(area_val, d):
-        if area_val == "any": return True
-        txt = (d.get("location","") + " " + d.get("description","") + " " + d.get("category","")).lower()
-        if area_val == "campus":
-            return "campus" in txt or "cornell" in txt or d.get("source") in {"libraries", "dining", "recs", "campusgroups"}
-        elif area_val == "collegetown":
-            return "collegetown" in txt or "college ave" in txt or "dryden" in txt or "eddy" in txt
-        elif area_val == "downtown":
-            return "downtown" in txt or "commons" in txt or "state st" in txt or "aurora" in txt or "seneca" in txt or "tioga" in txt
-        elif area_val == "nature":
-            return "trail" in txt or "park" in txt or "gorge" in txt or "waterfall" in txt or "nature" in txt or d.get("source") == "trails"
-        return True
-
     # Use the inverted index to get only docs that share at least one query term.
     # Any doc with no term overlap scores 0 anyway, so we can safely skip them.
     candidate_doc_indices = set()
@@ -1553,6 +1880,8 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
             continue
 
         if query_intents.get("food") and doc.get("source") in {"osm", "libraries"} and not is_food_relevant_doc(doc):
+            continue
+        if query_intents.get("coffee") and doc.get("source") in {"osm", "dining", "cafes"} and not is_coffee_relevant_doc(doc):
             continue
 
         primary_lexical_score = cosine_similarity(primary_query_vec, primary_query_norm, doc["_tfidf"], doc["_norm"])
@@ -1636,7 +1965,7 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
             lexical_score = candidate["lexical_score"]
             svd_score = 0.0
             matched_dimensions = []
-            doc_lat, doc_lon = extract_lat_lon(doc)
+            doc_lat, doc_lon = get_doc_lat_lon(doc)
 
             if doc_idx in LATENT_DOC_INDEX:
                 latent_idx = LATENT_DOC_INDEX[doc_idx]
@@ -1688,8 +2017,8 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
                 "reddit_snippet": None,
                 "search_mode": "tfidf",
                 "matched_dimensions": [],
-                "lat": extract_lat_lon(candidate["doc"])[0],
-                "lon": extract_lat_lon(candidate["doc"])[1],
+                "lat": get_doc_lat_lon(candidate["doc"])[0],
+                "lon": get_doc_lat_lon(candidate["doc"])[1],
                 "places_data": None,
             }
             for candidate in structured_candidates
@@ -1698,28 +2027,10 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
     structured_results.sort(key=lambda x: x["score"], reverse=True)
     reddit_results.sort(key=lambda x: x["score"], reverse=True)
 
-    if future_only:
-        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        def keep_result(r):
-            if r["source"] != "campusgroups":
-                return True
-            event_date = parse_event_date(r["start_time"])
-            return event_date is None or event_date >= today
-        structured_results = [r for r in structured_results if keep_result(r)]
-
-    if date_from or date_to:
-        def in_date_range(r):
-            if r["source"] != "campusgroups":
-                return True
-            event_date = parse_event_date(r["start_time"])
-            if event_date is None:
-                return True
-            if date_from and event_date < date_from:
-                return False
-            if date_to and event_date > date_to:
-                return False
-            return True
-        structured_results = [r for r in structured_results if in_date_range(r)]
+    structured_results = [
+        r for r in structured_results
+        if passes_temporal_filters(r, future_only=future_only, date_from=date_from, date_to=date_to)
+    ]
 
     top_structured = structured_results[:top_k]
     
@@ -1872,8 +2183,8 @@ def build_result_context(results):
 
 def synthesize_search_answer(query, results, rewritten_query=None):
     """RAG Step 3: Generate a grounded answer from both the user's original
-    query and the retrieved IR results.  Optionally receives the rewritten
-    retrieval query so the LLM understands how retrieval was performed."""
+    query and the retrieved IR results. Optionally receives a rewritten
+    interpretation so the LLM can better understand the user's intent."""
     if not results:
         return {
             "answer": "I couldn't find relevant results for that query in the current dataset.",
@@ -1896,7 +2207,7 @@ def synthesize_search_answer(query, results, rewritten_query=None):
     # Build query section with both original and rewritten queries
     query_section = f"User query: {query}"
     if rewritten_query and rewritten_query.lower() != query.lower():
-        query_section += f"\nRewritten retrieval query used by the IR system: {rewritten_query}"
+        query_section += f"\nShort interpretation of the user's intent: {rewritten_query}"
 
     messages = [
         {
@@ -1957,6 +2268,15 @@ def synthesize_search_answer(query, results, rewritten_query=None):
 # -----------------------------
 # API routes
 # -----------------------------
+@app.get("/api/config")
+def api_config():
+    llm_available, llm_reason = get_llm_status()
+    return jsonify({
+        "llm_available": llm_available,
+        "llm_reason": llm_reason,
+    })
+
+
 @app.get("/api/search")
 def api_search():
     query = request.args.get("q", "").strip()
@@ -2006,18 +2326,12 @@ def api_search():
             "message": "Pass a query with ?q=your+query"
         }), 400
 
-    # P05 RAG: Reformulate the raw user query (without filter terms),
-    # then merge rewritten keywords with filter context for IR.
     search_query = query
     rewritten_query = None
     if include_summary:
         rewritten_query = reformulate_query_for_ir(raw_query)
-        if rewritten_query and rewritten_query.lower() != raw_query.lower():
-            # Preserve any filter-context terms the frontend appended
-            filter_context = query.replace(raw_query, "", 1).strip()
-            search_query = f"{rewritten_query} {filter_context}".strip()
-        else:
-            rewritten_query = None  # No meaningful rewrite happened
+        if not rewritten_query or rewritten_query.lower() == raw_query.lower():
+            rewritten_query = None
 
     results, query_profile, effective_mode = search_documents(
         search_query,
@@ -2123,9 +2437,9 @@ def api_chat_results():
 
     client, api_key = get_llm_client()
     if not api_key:
-        return jsonify({"error": "SPARK_API_KEY not set"}), 500
+        return jsonify({"error": "AI chat is unavailable right now."}), 503
     if client is None:
-        return jsonify({"error": "LLM client not available in this environment"}), 500
+        return jsonify({"error": "AI chat is unavailable right now."}), 503
 
     context_parts = []
     for i, result in enumerate(results[:15], 1):
@@ -2210,9 +2524,9 @@ def api_chat_place():
 
     client, api_key = get_llm_client()
     if not api_key:
-        return jsonify({"error": "SPARK_API_KEY not set"}), 500
+        return jsonify({"error": "AI chat is unavailable right now."}), 503
     if client is None:
-        return jsonify({"error": "LLM client not available in this environment"}), 500
+        return jsonify({"error": "AI chat is unavailable right now."}), 503
 
     context_parts = []
     if place.get("title"):

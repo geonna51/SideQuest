@@ -124,11 +124,45 @@ function App(): JSX.Element {
   const [chatMessages, setChatMessages] = useState<Array<{text: string; isUser: boolean}>>([])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
+  const [llmAvailable, setLlmAvailable] = useState<boolean | null>(null)
+  const [llmStatusReason, setLlmStatusReason] = useState<string>('')
   const chatBottomRef = useRef<HTMLDivElement>(null)
+  const modalCloseRef = useRef<HTMLButtonElement | null>(null)
   const activeSearchRequestRef = useRef<number>(0)
   const loadMoreRef = useRef<HTMLDivElement | null>(null)
+  const dateDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [filterUpdating, setFilterUpdating] = useState<boolean>(false)
   const hasSynthesisAnswer = answer.trim() !== ''
   const hasSynthesisWarning = answerWarning.trim() !== ''
+  const hasCommittedSearch = searchTerm.trim() !== ''
+  const hasPendingQuery = searchInput.trim() !== '' && searchInput.trim() !== searchTerm.trim()
+
+  const getMatchLabel = (score: number): string => {
+    if (score >= 0.75) return 'Strong match'
+    if (score >= 0.5) return 'Good match'
+    if (score >= 0.25) return 'Possible match'
+    return 'Related result'
+  }
+
+  const getFriendlyChatError = (rawError: string | number): string => {
+    const message = String(rawError)
+
+    if (message.includes('SPARK_API_KEY not set') || message.includes('LLM client not available') || message.includes('AI chat is unavailable')) {
+      setLlmAvailable(false)
+      setLlmStatusReason('AI chat is unavailable right now.')
+      return 'AI chat is unavailable right now.'
+    }
+
+    if (message.includes('Streaming error occurred')) {
+      return 'The chat response was interrupted. Please try again.'
+    }
+
+    if (/^\d+$/.test(message)) {
+      return `Chat failed (${message}). Please try again.`
+    }
+
+    return `Chat failed: ${message}`
+  }
 
   const navigateToPage = (nextPage: AppPage): void => {
     if (nextPage === page) {
@@ -147,6 +181,37 @@ function App(): JSX.Element {
   }, [])
 
   useEffect(() => {
+    let cancelled = false
+
+    void (async () => {
+      try {
+        const response = await fetch('/api/config')
+        if (!response.ok) {
+          return
+        }
+
+        const data = await response.json()
+        if (cancelled) {
+          return
+        }
+
+        if (typeof data.llm_available === 'boolean') {
+          setLlmAvailable(data.llm_available)
+        }
+        if (typeof data.llm_reason === 'string') {
+          setLlmStatusReason(data.llm_reason)
+        }
+      } catch {
+        // Leave chat enabled by default if config detection fails.
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatMessages, chatLoading])
 
@@ -162,16 +227,44 @@ function App(): JSX.Element {
   useEffect(() => {
     if (page === 'about') {
       setSelectedResult(null)
+      setChatOpen(false)
     }
   }, [page])
+
+  useEffect(() => {
+    return () => {
+      if (dateDebounceRef.current) {
+        clearTimeout(dateDebounceRef.current)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!selectedResult) {
+      return
+    }
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    modalCloseRef.current?.focus()
+
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [selectedResult])
 
   // Mirrors backend parse_event_date: extracts "20 January 2026" from freeform strings
   const parseStartTime = (str: string): number => {
     if (!str) return NaN
     const iso = Date.parse(str)
     if (!isNaN(iso)) return iso
-    const match = str.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/)
-    if (match) return Date.parse(`${match[1]} ${match[2]} ${match[3]}`)
+    const match = str.match(/(\d{1,2})\s+(\w+)\s+(\d{4})(?:.*?\b(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\b)?/i)
+    if (match) {
+      if (match[4]) {
+        return Date.parse(`${match[1]} ${match[2]} ${match[3]} ${match[4]}:${match[5] ?? '00'} ${match[6]}`)
+      }
+      return Date.parse(`${match[1]} ${match[2]} ${match[3]}`)
+    }
     return NaN
   }
 
@@ -235,7 +328,10 @@ function App(): JSX.Element {
     setDateFrom(from)
     setDateTo(to)
 
-    if (q) setSearchInput(q)
+    if (q) {
+      setSearchInput(q)
+      void handleSearch(q, src, mode, time, area, intent, future, redditOpt, from, to)
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -312,6 +408,12 @@ function App(): JSX.Element {
       setError('')
       setLoading(false)
       setSummaryLoading(false)
+      setFilterUpdating(false)
+      setRewrittenQuery(null)
+      setSelectedResult(null)
+      setChatMessages([])
+      setChatInput('')
+      setChatOpen(false)
       return false
     }
 
@@ -325,9 +427,12 @@ function App(): JSX.Element {
       setRetrievalContext(labels)
       setAnswer('')
       setAnswerWarning('')
+      setSummaryLoading(false)
       setRewrittenQuery(null)
       if (results.length === 0 || value.trim() !== searchTerm) {
         setLoading(true)
+      } else {
+        setFilterUpdating(true)
       }
     }
 
@@ -357,6 +462,10 @@ function App(): JSX.Element {
         setQueryLatentProfile(data.query_latent_profile ?? { positive: [], negative: [] })
         setEffectiveMode(data.effective_mode ?? selectedMode)
         setRewrittenQuery(data.rewritten_query ?? null)
+        setSelectedResult(null)
+        setChatMessages([])
+        setChatInput('')
+        setChatOpen(false)
       }
       return true
     } catch (err) {
@@ -377,13 +486,20 @@ function App(): JSX.Element {
         setRewrittenQuery(null)
         setQueryLatentProfile({ positive: [], negative: [] })
         setRetrievalContext(labels)
+        setSelectedResult(null)
+        setChatMessages([])
+        setChatInput('')
+        setChatOpen(false)
       }
       return false
     } finally {
-      if (includeSummary) {
-        setSummaryLoading(false)
-      } else {
-        setLoading(false)
+      if (requestId === activeSearchRequestRef.current) {
+        if (includeSummary) {
+          setSummaryLoading(false)
+        } else {
+          setLoading(false)
+          setFilterUpdating(false)
+        }
       }
     }
   }
@@ -448,8 +564,8 @@ function App(): JSX.Element {
     setIncludeReddit(true)
     setDateFrom('')
     setDateTo('')
-    if (searchInput.trim()) {
-      void handleSearch(searchInput, 'all', 'svd', 'any', 'any', 'any', true, true, '', '')
+    if (hasCommittedSearch) {
+      void handleSearch(searchTerm, 'all', 'svd', 'any', 'any', 'any', true, true, '', '')
     }
   }
 
@@ -472,15 +588,14 @@ function App(): JSX.Element {
       })
 
       if (!response.ok) {
-        const data = await response.json()
-        setChatMessages(prev => [...prev, { text: 'Error: ' + (data.error || response.status), isUser: false }])
+        const data = await response.json().catch(() => ({}))
+        setChatMessages(prev => [...prev, { text: getFriendlyChatError(data.error || response.status), isUser: false }])
         setChatLoading(false)
         return
       }
 
       let assistantText = ''
       setChatMessages(prev => [...prev, { text: '', isUser: false }])
-      setChatLoading(false)
 
       const reader = response.body!.getReader()
       const decoder = new TextDecoder()
@@ -497,7 +612,8 @@ function App(): JSX.Element {
             try {
               const data = JSON.parse(line.slice(6))
               if (data.error) {
-                setChatMessages(prev => [...prev.slice(0, -1), { text: 'Error: ' + data.error, isUser: false }])
+                setChatMessages(prev => [...prev.slice(0, -1), { text: getFriendlyChatError(data.error), isUser: false }])
+                setChatLoading(false)
                 return
               }
               if (data.content !== undefined) {
@@ -508,8 +624,12 @@ function App(): JSX.Element {
           }
         }
       }
+      if (!assistantText.trim()) {
+        setChatMessages(prev => [...prev.slice(0, -1), { text: 'No reply came back. Please try again.', isUser: false }])
+      }
+      setChatLoading(false)
     } catch {
-      setChatMessages(prev => [...prev, { text: 'Something went wrong. Check the console.', isUser: false }])
+      setChatMessages(prev => [...prev, { text: 'Something went wrong while contacting chat. Please try again.', isUser: false }])
       setChatLoading(false)
     }
   }
@@ -528,10 +648,12 @@ function App(): JSX.Element {
 
   const searchPageContent = (
     <>
+      <label className="sr-only" htmlFor="search-input">Search SideQuest</label>
       <div className="input-box">
         <img src={SearchIcon} alt="search" />
         <input
           id="search-input"
+          aria-describedby="search-input-hint"
           placeholder="Search for things to do in Ithaca..."
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
@@ -542,7 +664,7 @@ function App(): JSX.Element {
           }}
         />
       </div>
-      <div className="search-input-hint" aria-live="polite">
+      <div id="search-input-hint" className="search-input-hint" aria-live="polite">
         <span className="search-input-hint-text">Type your search, then press</span>
         <kbd className="search-input-kbd">Enter</kbd>
         <span className="search-input-hint-text">to load results and generate the summary</span>
@@ -558,8 +680,8 @@ function App(): JSX.Element {
               onChange={(e) => {
                 const val = e.target.value
                 setSource(val)
-                if (searchInput.trim()) {
-                  void handleSearch(searchInput, val, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, includeReddit, dateFrom, dateTo)
+                if (hasCommittedSearch) {
+                  void handleSearch(searchTerm, val, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, includeReddit, dateFrom, dateTo)
                 }
               }}
             >
@@ -582,8 +704,8 @@ function App(): JSX.Element {
               onChange={(e) => {
                 const val = e.target.value
                 setTimeFilter(val)
-                if (searchInput.trim()) {
-                  void handleSearch(searchInput, source, searchMode, val, areaFilter, intentFilter, futureOnly, includeReddit, dateFrom, dateTo)
+                if (hasCommittedSearch) {
+                  void handleSearch(searchTerm, source, searchMode, val, areaFilter, intentFilter, futureOnly, includeReddit, dateFrom, dateTo)
                 }
               }}
             >
@@ -602,8 +724,8 @@ function App(): JSX.Element {
               onChange={(e) => {
                 const val = e.target.value
                 setAreaFilter(val)
-                if (searchInput.trim()) {
-                  void handleSearch(searchInput, source, searchMode, timeFilter, val, intentFilter, futureOnly, includeReddit, dateFrom, dateTo)
+                if (hasCommittedSearch) {
+                  void handleSearch(searchTerm, source, searchMode, timeFilter, val, intentFilter, futureOnly, includeReddit, dateFrom, dateTo)
                 }
               }}
             >
@@ -622,8 +744,8 @@ function App(): JSX.Element {
               onChange={(e) => {
                 const val = e.target.value
                 setIntentFilter(val)
-                if (searchInput.trim()) {
-                  void handleSearch(searchInput, source, searchMode, timeFilter, areaFilter, val, futureOnly, includeReddit, dateFrom, dateTo)
+                if (hasCommittedSearch) {
+                  void handleSearch(searchTerm, source, searchMode, timeFilter, areaFilter, val, futureOnly, includeReddit, dateFrom, dateTo)
                 }
               }}
             >
@@ -642,12 +764,12 @@ function App(): JSX.Element {
               onChange={(e) => {
                 const val = e.target.checked
                 setFutureOnly(val)
-                if (searchInput.trim()) {
-                  void handleSearch(searchInput, source, searchMode, timeFilter, areaFilter, intentFilter, val, includeReddit, dateFrom, dateTo)
+                if (hasCommittedSearch) {
+                  void handleSearch(searchTerm, source, searchMode, timeFilter, areaFilter, intentFilter, val, includeReddit, dateFrom, dateTo)
                 }
               }}
             />
-            Upcoming events only
+            Hide past scheduled events
           </label>
         </div>
 
@@ -662,9 +784,12 @@ function App(): JSX.Element {
               onChange={(e) => {
                 const val = e.target.value
                 setDateFrom(val)
-                if (searchInput.trim()) {
-                  void handleSearch(searchInput, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, includeReddit, val, dateTo)
-                }
+                if (dateDebounceRef.current) clearTimeout(dateDebounceRef.current)
+                dateDebounceRef.current = setTimeout(() => {
+                  if (hasCommittedSearch) {
+                    void handleSearch(searchTerm, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, includeReddit, val, dateTo)
+                  }
+                }, 400)
               }}
             />
           </div>
@@ -678,9 +803,12 @@ function App(): JSX.Element {
               onChange={(e) => {
                 const val = e.target.value
                 setDateTo(val)
-                if (searchInput.trim()) {
-                  void handleSearch(searchInput, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, includeReddit, dateFrom, val)
-                }
+                if (dateDebounceRef.current) clearTimeout(dateDebounceRef.current)
+                dateDebounceRef.current = setTimeout(() => {
+                  if (hasCommittedSearch) {
+                    void handleSearch(searchTerm, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, includeReddit, dateFrom, val)
+                  }
+                }, 400)
               }}
             />
           </div>
@@ -691,8 +819,8 @@ function App(): JSX.Element {
               onClick={() => {
                 setDateFrom('')
                 setDateTo('')
-                if (searchInput.trim()) {
-                  void handleSearch(searchInput, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, includeReddit, '', '')
+                if (hasCommittedSearch) {
+                  void handleSearch(searchTerm, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, includeReddit, '', '')
                 }
               }}
             >
@@ -700,6 +828,7 @@ function App(): JSX.Element {
             </button>
           )}
         </div>
+        <p className="filter-help-text">Date filters apply to scheduled results.</p>
 
         <div className="filter-actions-row">
           <button
@@ -717,11 +846,12 @@ function App(): JSX.Element {
             <button
               type="button"
               className={`mode-toggle-button ${searchMode === 'svd' ? 'active' : ''}`}
-              aria-pressed={searchMode === 'svd'}
+              role="radio"
+              aria-checked={searchMode === 'svd'}
               onClick={() => {
                 setSearchMode('svd')
-                if (searchInput.trim()) {
-                  void handleSearch(searchInput, source, 'svd', timeFilter, areaFilter, intentFilter, futureOnly, includeReddit, dateFrom, dateTo)
+                if (hasCommittedSearch) {
+                  void handleSearch(searchTerm, source, 'svd', timeFilter, areaFilter, intentFilter, futureOnly, includeReddit, dateFrom, dateTo)
                 }
               }}
             >
@@ -731,11 +861,12 @@ function App(): JSX.Element {
             <button
               type="button"
               className={`mode-toggle-button ${searchMode === 'tfidf' ? 'active' : ''}`}
-              aria-pressed={searchMode === 'tfidf'}
+              role="radio"
+              aria-checked={searchMode === 'tfidf'}
               onClick={() => {
                 setSearchMode('tfidf')
-                if (searchInput.trim()) {
-                  void handleSearch(searchInput, source, 'tfidf', timeFilter, areaFilter, intentFilter, futureOnly, includeReddit, dateFrom, dateTo)
+                if (hasCommittedSearch) {
+                  void handleSearch(searchTerm, source, 'tfidf', timeFilter, areaFilter, intentFilter, futureOnly, includeReddit, dateFrom, dateTo)
                 }
               }}
             >
@@ -764,7 +895,7 @@ function App(): JSX.Element {
           <ul className="about-list">
             <li>Type a query like "quiet study spots", "cheap dinner in Collegetown", or "things to do this weekend".</li>
             <li>Press <strong>Enter</strong> to run retrieval and generate the summary card.</li>
-            <li>Use the filters to narrow results by category, time, area, vibe, and date range.</li>
+            <li>Use the filters to narrow results by category, time, area, vibe, and scheduled date range.</li>
             <li>Open a result card to read the full description, hours, reviews, and links when available.</li>
           </ul>
         </article>
@@ -774,7 +905,7 @@ function App(): JSX.Element {
           <ul className="about-list">
             <li><strong>Hybrid SVD Search</strong> blends lexical retrieval with latent semantic reranking, which helps surface conceptually related results.</li>
             <li><strong>TF-IDF Baseline</strong> uses exact lexical similarity and is useful as a transparent comparison mode.</li>
-            <li>The RAG layer can rewrite vague queries to add useful context, while the system still preserves the original query signal for ranking.</li>
+            <li>The summary assistant can reinterpret vague queries to explain recommendations, while the original query still drives retrieval and ranking.</li>
           </ul>
         </article>
 
@@ -907,7 +1038,7 @@ function App(): JSX.Element {
           <div className="mode-summary-card">
             {rewrittenQuery && (
               <div className="rewritten-query-note" style={{ marginBottom: '12px', padding: '8px', backgroundColor: 'rgba(179, 27, 27, 0.06)', borderRadius: '6px' }}>
-                <strong style={{ color: 'var(--cornell-red-deep)' }}>RAG Query Rewrite:</strong> Using <em>"{rewrittenQuery}"</em>
+                <strong style={{ color: 'var(--cornell-red-deep)' }}>Summary assistant interpretation:</strong> <em>"{rewrittenQuery}"</em>
               </div>
             )}
             <p className="mode-summary-label">
@@ -949,10 +1080,16 @@ function App(): JSX.Element {
         )}
 
         {results.length > 0 && (
-          <section className="results-section">
+          <section className="results-section" aria-busy={loading || filterUpdating} style={{ opacity: filterUpdating ? 0.55 : 1, transition: 'opacity 0.2s ease' }}>
             <div className="results-toolbar">
               <div className="results-toolbar-copy">
                 <p className="results-count">{sortedResults.length} results</p>
+                {hasPendingQuery && (
+                  <p className="results-subtitle">Press Enter to search for "{searchInput.trim()}".</p>
+                )}
+                {!hasPendingQuery && llmAvailable === false && (
+                  <p className="results-subtitle">{llmStatusReason || 'AI chat is unavailable right now.'}</p>
+                )}
               </div>
               <div className="sort-row" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                 <label className="toggle-switch-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', opacity: 0.9 }}>
@@ -963,8 +1100,8 @@ function App(): JSX.Element {
                       onChange={(e) => {
                         const val = e.target.checked
                         setIncludeReddit(val)
-                        if (searchInput.trim()) {
-                          void handleSearch(searchInput, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, val, dateFrom, dateTo)
+                        if (hasCommittedSearch) {
+                          void handleSearch(searchTerm, source, searchMode, timeFilter, areaFilter, intentFilter, futureOnly, val, dateFrom, dateTo)
                         }
                       }}
                     />
@@ -1025,8 +1162,8 @@ function App(): JSX.Element {
                   )}
 
                   {result.reddit_snippet && (
-                    <div style={{ padding: '12px 16px', marginTop: '1rem', marginBottom: '1rem', backgroundColor: '#f9fafb', borderLeft: '3px solid #d1d5db', fontStyle: 'italic', fontSize: '0.95em', color: '#4b5563', borderRadius: '0 8px 8px 0' }}>
-                      💡 {result.reddit_snippet.length > 150 ? result.reddit_snippet.slice(0, 150) + '...' : result.reddit_snippet}
+                    <div className="reddit-snippet-bar">
+                      💡 {result.reddit_snippet}
                     </div>
                   )}
 
@@ -1067,7 +1204,7 @@ function App(): JSX.Element {
                   </div>
 
                   <div className="episode-actions">
-                    <span className="meta-chip score-chip">Match: {Math.round(result.score * 100)}%</span>
+                    <span className="meta-chip score-chip">{getMatchLabel(result.score)}</span>
                     <span className="action-button">View Details</span>
                   </div>
                 </div>
@@ -1086,8 +1223,8 @@ function App(): JSX.Element {
 
       {page === 'search' && selectedResult && (
         <div className="modal-backdrop" onClick={() => setSelectedResult(null)}>
-          <div className="modal-panel" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-            <button className="modal-close" onClick={() => setSelectedResult(null)} aria-label="Close">✕</button>
+          <div className="modal-panel" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="result-modal-title">
+            <button ref={modalCloseRef} className="modal-close" onClick={() => setSelectedResult(null)} aria-label="Close">✕</button>
 
             {selectedResult.places_data?.photo_path && (
               <img
@@ -1099,7 +1236,7 @@ function App(): JSX.Element {
 
             <div className="modal-body">
               <div className="modal-header-row">
-                <h2 className="modal-title">{selectedResult.title}</h2>
+                <h2 id="result-modal-title" className="modal-title">{selectedResult.title}</h2>
                 <div className="modal-header-chips">
                   {selectedResult.places_data?.price_level && (
                     <span className="meta-chip price-chip">{selectedResult.places_data.price_level}</span>
@@ -1159,7 +1296,7 @@ function App(): JSX.Element {
               )}
 
               {selectedResult.reddit_snippet && (
-                <div style={{ padding: '12px 16px', marginTop: '1rem', marginBottom: '1rem', backgroundColor: '#f9fafb', borderLeft: '3px solid #d1d5db', fontStyle: 'italic', fontSize: '0.95em', color: '#4b5563', borderRadius: '0 8px 8px 0' }}>
+                <div className="reddit-snippet-bar">
                   💡 {selectedResult.reddit_snippet}
                 </div>
               )}
@@ -1199,7 +1336,7 @@ function App(): JSX.Element {
           </div>
         </div>
       )}
-      {page === 'search' && results.length > 0 && (
+      {page === 'search' && results.length > 0 && llmAvailable !== false && (
         <>
           <button
             className={`chat-fab ${chatOpen ? 'chat-fab-open' : ''}`}
@@ -1233,7 +1370,14 @@ function App(): JSX.Element {
                     {msg.isUser ? (
                       <p>{msg.text}</p>
                     ) : (
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
+                        }}
+                      >
+                        {msg.text}
+                      </ReactMarkdown>
                     )}
                   </div>
                 ))}

@@ -3,7 +3,7 @@ import csv
 import os
 
 def fetch_osm_data():
-    overpass_url = "http://overpass-api.de/api/interpreter"
+    overpass_url = "https://overpass-api.de/api/interpreter"
     
     # Ithaca + Surrounding State Parks Bounding Box: 
     # (Captures Cornell, Downtown Ithaca, Taughannock Falls, Buttermilk Falls, Treman State Park)
@@ -25,12 +25,13 @@ def fetch_osm_data():
     """
     
     print("Querying Overpass API... (This might take a minute)")
-    response = requests.post(overpass_url, data={'data': overpass_query})
-    
-    if response.status_code != 200:
-        print(f"Error fetching data: {response.text}")
+    try:
+        response = requests.post(overpass_url, data={'data': overpass_query}, timeout=120)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        print(f"Error fetching data: {exc}")
         return
-        
+
     data = response.json()
     
     os.makedirs("data/open_street_map", exist_ok=True)

@@ -4,7 +4,7 @@ import requests
 
 def fetch_trails():
     print("Querying Overpass API for Ithaca Trails...")
-    url = "http://overpass-api.de/api/interpreter"
+    url = "https://overpass-api.de/api/interpreter"
     
     # Query for all designated paths, footways, cycleways, tracks, and hiking routes 
     # anywhere within the greater Tompkins County, specifically requiring a "name" 
@@ -22,11 +22,13 @@ def fetch_trails():
     out center;
     """
     
-    response = requests.post(url, data={'data': query})
-    if response.status_code != 200:
-        print("Failed to fetch trails data", response.text)
+    try:
+        response = requests.post(url, data={'data': query}, timeout=120)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        print("Failed to fetch trails data", exc)
         return
-        
+
     data = response.json().get("elements", [])
     
     os.makedirs("data/ithaca_trails", exist_ok=True)

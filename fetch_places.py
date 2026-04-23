@@ -9,9 +9,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY")
+GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
-CACHE_PATH = os.path.join("data", "places_cache", "places_data.json")
+CACHE_PATH = os.path.join("data", "google_places", "places_data.json")
 
 DELAY_SECONDS = 0.12 
 

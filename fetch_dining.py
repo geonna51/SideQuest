@@ -4,7 +4,7 @@ import requests
 
 def fetch_dining():
     print("Querying Overpass API for Cornell Dining...")
-    url = "http://overpass-api.de/api/interpreter"
+    url = "https://overpass-api.de/api/interpreter"
     
     # Query for all eateries specifically operated by "Cornell Dining" 
     # as well as any major Campus "Dining", "Eatery", "Cafe" structures.
@@ -21,11 +21,13 @@ def fetch_dining():
     out center;
     """
     
-    response = requests.post(url, data={'data': query})
-    if response.status_code != 200:
-        print("Failed to fetch dining data", response.text)
+    try:
+        response = requests.post(url, data={'data': query}, timeout=120)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        print("Failed to fetch dining data", exc)
         return
-        
+
     data = response.json().get("elements", [])
     
     os.makedirs("data/cornell_dining", exist_ok=True)

@@ -48,11 +48,13 @@ def fetch_recs():
     }
     """
     
-    response = requests.post(url, json={"query": query})
-    if response.status_code != 200:
-        print("Failed to fetch data", response.text)
+    try:
+        response = requests.post(url, json={"query": query}, timeout=60)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        print("Failed to fetch data", exc)
         return
-        
+
     data = response.json().get("data", {}).get("getAllGyms", [])
     
     os.makedirs("data/cornell_recs", exist_ok=True)
