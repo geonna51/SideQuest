@@ -9,4 +9,3 @@ SQLAlchemy==2.0.36
 Werkzeug==2.2.2
 gunicorn==25.0.3
 python-dotenv
-git+https://github.com/MrPeterss/infosci-spark-client.git

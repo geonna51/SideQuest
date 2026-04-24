@@ -85,7 +85,7 @@ Then open `http://localhost:5173` in your browser!
 │       └── types.ts
 ├── requirements.txt
 ├── Dockerfile
-└── .env                # API_KEY goes here (not committed)
+└── .env                # SPARK_API_KEY goes here (not committed)
 ```
 
 ### Backend (Flask)

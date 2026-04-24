@@ -3,7 +3,7 @@ LLM chat route — only loaded when USE_LLM = True in routes.py.
 Adds a POST /api/chat endpoint that performs LLM-driven RAG.
 
 Setup:
-  1. Add API_KEY=your_key to .env
+  1. Add SPARK_API_KEY=your_key to .env
   2. Set USE_LLM = True in routes.py
 """
 import json
@@ -97,7 +97,7 @@ def register_chat_route(app, json_search):
 
         api_key = os.getenv("API_KEY") or os.getenv("SPARK_API_KEY")
         if not api_key:
-            return jsonify({"error": "API_KEY not set — add it to your .env file"}), 500
+            return jsonify({"error": "SPARK_API_KEY not set — add it to your .env file"}), 500
 
         client = LLMClient(api_key=api_key)
         use_search, search_term = llm_search_decision(client, user_message)
@@ -151,7 +151,7 @@ def register_place_chat_route(app):
 
         api_key = os.getenv("API_KEY") or os.getenv("SPARK_API_KEY")
         if not api_key:
-            return jsonify({"error": "API_KEY not set — add it to your .env file"}), 500
+            return jsonify({"error": "SPARK_API_KEY not set — add it to your .env file"}), 500
 
         client = LLMClient(api_key=api_key)
 
