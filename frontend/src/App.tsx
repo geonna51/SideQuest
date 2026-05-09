@@ -60,6 +60,7 @@ type PlacesData = {
   previous_name?: string | null
   description?: string | null
   address?: string | null
+  business_status?: string | null
   reviews?: Array<{
     author: string
     rating: number | null
@@ -94,6 +95,24 @@ const getCurrentPage = (): AppPage => {
   return hash === '/about' ? 'about' : 'search'
 }
 
+const STOP_WORDS = new Set([
+  'a',
+  'an',
+  'and',
+  'are',
+  'at',
+  'for',
+  'from',
+  'in',
+  'is',
+  'of',
+  'on',
+  'or',
+  'the',
+  'to',
+  'with',
+])
+
 function App(): JSX.Element {
   const [page, setPage] = useState<AppPage>(getCurrentPage)
   const [searchInput, setSearchInput] = useState<string>('')
@@ -104,6 +123,7 @@ function App(): JSX.Element {
   const [areaFilter, setAreaFilter] = useState<string>('any')
   const [intentFilter, setIntentFilter] = useState<string>('any')
   const [futureOnly, setFutureOnly] = useState<boolean>(true)
+  const [hideClosed, setHideClosed] = useState<boolean>(true)
   const [includeReddit, setIncludeReddit] = useState<boolean>(true)
   const [dateFrom, setDateFrom] = useState<string>('')
   const [dateTo, setDateTo] = useState<string>('')
@@ -142,6 +162,45 @@ function App(): JSX.Element {
     if (score >= 0.5) return 'Good match'
     if (score >= 0.25) return 'Possible match'
     return 'Related result'
+  }
+
+  const getActivityVisualLabel = (result: SearchResult): string => {
+    return result.category || result.source || result.doc_type || 'Activity'
+  }
+
+  const getActivityTone = (result: SearchResult): string => {
+    const text = [
+      result.category,
+      result.source,
+      result.doc_type,
+      result.organization,
+      result.title,
+    ].join(' ').toLowerCase()
+
+    if (/(trail|park|gorge|water|outdoor|nature|hike|garden|farm|lake)/.test(text)) return 'tone-green'
+    if (/(food|dining|cafe|coffee|restaurant|bakery|bar|market|eat|pizza|sushi|ramen|taco|burrito|burger|bagel|sandwich|wings|bbq|brunch|breakfast|lunch|dinner|dessert|ice cream)/.test(text)) return 'tone-gold'
+    if (/(library|study|museum|art|theater|film|lecture|class|academic)/.test(text)) return 'tone-blue'
+    if (/(fitness|gym|sport|rec|yoga|dance|pool|court|active)/.test(text)) return 'tone-teal'
+    if (/(event|club|social|community|festival|music|concert)/.test(text)) return 'tone-coral'
+    return 'tone-red'
+  }
+
+  const tokenizeForSimilarity = (value: string): Set<string> => {
+    return new Set(
+      value
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter((token) => token.length > 2 && !STOP_WORDS.has(token))
+    )
+  }
+
+  const getSharedTokenCount = (left: Set<string>, right: Set<string>): number => {
+    let shared = 0
+    left.forEach((token) => {
+      if (right.has(token)) shared += 1
+    })
+    return shared
   }
 
   const getFriendlyChatError = (rawError: string | number): string => {
@@ -268,7 +327,14 @@ function App(): JSX.Element {
     return NaN
   }
 
-  const sortedResults = [...results].sort((a, b) => {
+  const filteredResults = hideClosed
+    ? results.filter((r) => {
+        const status = r.places_data?.business_status
+        return status !== 'CLOSED_PERMANENTLY' && status !== 'CLOSED_TEMPORARILY'
+      })
+    : results
+
+  const sortedResults = [...filteredResults].sort((a, b) => {
     if (sortBy === 'score') return 0
     const aTime = parseStartTime(a.start_time)
     const bTime = parseStartTime(b.start_time)
@@ -279,6 +345,36 @@ function App(): JSX.Element {
     if (!bValid) return -1
     return sortBy === 'date_asc' ? aTime - bTime : bTime - aTime
   })
+
+  const getSimilarActivities = (result: SearchResult): SearchResult[] => {
+    const titleTokens = tokenizeForSimilarity(result.title)
+    const descriptionTokens = tokenizeForSimilarity(result.description)
+    const dimensionKeys = new Set((result.matched_dimensions ?? []).map((dimension) => `${dimension.dimension}-${dimension.direction}`))
+
+    return sortedResults
+      .filter((candidate) => candidate.id !== result.id)
+      .map((candidate) => {
+        let similarity = 0
+
+        if (candidate.category && result.category && candidate.category === result.category) similarity += 4
+        if (candidate.source && result.source && candidate.source === result.source) similarity += 1
+        if (candidate.doc_type && result.doc_type && candidate.doc_type === result.doc_type) similarity += 1
+        if (candidate.location && result.location && candidate.location === result.location) similarity += 2
+        if (candidate.organization && result.organization && candidate.organization === result.organization) similarity += 2
+
+        similarity += Math.min(getSharedTokenCount(titleTokens, tokenizeForSimilarity(candidate.title)), 4) * 0.7
+        similarity += Math.min(getSharedTokenCount(descriptionTokens, tokenizeForSimilarity(candidate.description)), 5) * 0.25
+
+        const sharedDimensions = (candidate.matched_dimensions ?? []).filter((dimension) => dimensionKeys.has(`${dimension.dimension}-${dimension.direction}`)).length
+        similarity += sharedDimensions * 1.4
+
+        return { candidate, similarity }
+      })
+      .filter(({ similarity }) => similarity >= 1.5)
+      .sort((a, b) => b.similarity - a.similarity || b.candidate.score - a.candidate.score)
+      .slice(0, 3)
+      .map(({ candidate }) => candidate)
+  }
 
   useEffect(() => {
     const sentinel = loadMoreRef.current
@@ -569,9 +665,8 @@ function App(): JSX.Element {
     }
   }
 
-  const sendGeneralChat = async (e: React.FormEvent): Promise<void> => {
-    e.preventDefault()
-    const text = chatInput.trim()
+  const submitChatMessage = async (rawText: string): Promise<void> => {
+    const text = rawText.trim()
     if (!text || chatLoading) return
 
     setChatMessages(prev => [...prev, { text, isUser: true }])
@@ -579,12 +674,13 @@ function App(): JSX.Element {
     setChatLoading(true)
 
     const contextResults = sortedResults.slice(0, Math.min(visibleCount, 15))
+    const history = chatMessages.slice(-6)
 
     try {
       const response = await fetch('/api/chat/results', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, results: contextResults }),
+        body: JSON.stringify({ message: text, results: contextResults, history }),
       })
 
       if (!response.ok) {
@@ -633,6 +729,18 @@ function App(): JSX.Element {
       setChatLoading(false)
     }
   }
+
+  const sendGeneralChat = async (e: React.FormEvent): Promise<void> => {
+    e.preventDefault()
+    await submitChatMessage(chatInput)
+  }
+
+  const CHAT_STARTERS = [
+    'Recommend one for me',
+    'Compare the top picks',
+    'Which is rated highest?',
+    'What stands out?',
+  ]
 
   const rankingModeLabel = searchMode === 'svd'
     ? effectiveMode === 'svd'
@@ -770,6 +878,14 @@ function App(): JSX.Element {
               }}
             />
             Hide past scheduled events
+          </label>
+          <label className="filter-toggle-label">
+            <input
+              type="checkbox"
+              checked={hideClosed}
+              onChange={(e) => setHideClosed(e.target.checked)}
+            />
+            Hide closed places
           </label>
         </div>
 
@@ -1079,7 +1195,7 @@ function App(): JSX.Element {
           <p className="status-message empty-state">We couldn't find any activities matching your quest.</p>
         )}
 
-        {results.length > 0 && (
+        {hasCommittedSearch && (
           <section className="results-section" aria-busy={loading || filterUpdating} style={{ opacity: filterUpdating ? 0.55 : 1, transition: 'opacity 0.2s ease' }}>
             <div className="results-toolbar">
               <div className="results-toolbar-copy">
@@ -1129,18 +1245,43 @@ function App(): JSX.Element {
             </div>
 
             <div className="results-grid">
-              {sortedResults.slice(0, visibleCount).map((result) => (
-                <div
-                  key={result.id}
-                  className="episode-item"
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => setSelectedResult(result)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedResult(result) }}
-                >
+              {sortedResults.slice(0, visibleCount).map((result) => {
+                const similarActivities = getSimilarActivities(result)
+
+                return (
+                  <div
+                    key={result.id}
+                    className={`episode-item ${getActivityTone(result)}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setSelectedResult(result)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedResult(result) }}
+                  >
+                  <div className="episode-visual" aria-hidden="true">
+                    {result.places_data?.photo_path ? (
+                      <img
+                        className="episode-photo"
+                        src={result.places_data.photo_path}
+                        alt=""
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="episode-visual-fallback">
+                        <span className="episode-visual-mark">{getActivityVisualLabel(result).slice(0, 1).toUpperCase()}</span>
+                      </div>
+                    )}
+                    <span className="episode-visual-label">{getActivityVisualLabel(result)}</span>
+                  </div>
+
                   <div className="episode-title-row">
                     <h3 className="episode-title">{result.title}</h3>
                     <div className="episode-title-chips">
+                      {result.places_data?.business_status === 'CLOSED_PERMANENTLY' && (
+                        <span className="meta-chip closed-chip">Permanently closed</span>
+                      )}
+                      {result.places_data?.business_status === 'CLOSED_TEMPORARILY' && (
+                        <span className="meta-chip closed-chip closed-chip--temporary">Temporarily closed</span>
+                      )}
                       {result.places_data?.price_level && (
                         <span className="meta-chip price-chip">{result.places_data.price_level}</span>
                       )}
@@ -1203,12 +1344,36 @@ function App(): JSX.Element {
                     )}
                   </div>
 
+                  {similarActivities.length > 0 && (
+                    <div className="similar-activities" aria-label={`Similar activities to ${result.title}`}>
+                      <p className="similar-activities-title">Similar activities</p>
+                      <div className="similar-activities-list">
+                        {similarActivities.map((activity) => (
+                          <button
+                            key={`${result.id}-similar-${activity.id}`}
+                            type="button"
+                            className="similar-activity-button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setSelectedResult(activity)
+                            }}
+                            onKeyDown={(e) => e.stopPropagation()}
+                          >
+                            <span className="similar-activity-name">{activity.title}</span>
+                            {activity.category && <span className="similar-activity-category">{activity.category}</span>}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="episode-actions">
                     <span className="meta-chip score-chip">{getMatchLabel(result.score)}</span>
                     <span className="action-button">View Details</span>
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
 
             {!loading && visibleCount < sortedResults.length && (
@@ -1363,7 +1528,22 @@ function App(): JSX.Element {
 
               <div className="chat-panel-messages">
                 {chatMessages.length === 0 && (
-                  <p className="chat-panel-empty">Ask anything about the {sortedResults.length} results on screen — comparisons, recommendations, hours, vibe…</p>
+                  <div className="chat-panel-empty">
+                    <p>Ask anything about the {sortedResults.length} results on screen — comparisons, recommendations, hours, vibe…</p>
+                    <div className="chat-starters">
+                      {CHAT_STARTERS.map((starter) => (
+                        <button
+                          key={starter}
+                          type="button"
+                          className="chat-starter-chip"
+                          onClick={() => void submitChatMessage(starter)}
+                          disabled={chatLoading}
+                        >
+                          {starter}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 )}
                 {chatMessages.map((msg, i) => (
                   <div key={i} className={`chat-bubble ${msg.isUser ? 'user' : 'assistant'}`}>

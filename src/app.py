@@ -208,6 +208,36 @@ FOOD_ITEM_TERMS = {
     "wings",
 }
 
+# Maps a cuisine query token to substrings expected in a place's Google
+# primary_type / types array. Used by is_cuisine_match to filter out food
+# places whose actual Google-categorized type doesn't match the queried
+# cuisine, even if the cuisine word appears in their reviews.
+# Coffee/tea omitted — covered by is_coffee_relevant_doc. Generic terms
+# (chicken, brunch, breakfast, lunch) omitted — too broad to filter on.
+CUISINE_TYPE_HINTS = {
+    "pizza": ("pizza",),
+    "sushi": ("sushi", "japanese"),
+    "ramen": ("ramen", "japanese", "noodle"),
+    "burger": ("hamburger", "burger"),
+    "taco": ("mexican", "taco"),
+    "burrito": ("mexican", "burrito"),
+    "dumpling": ("chinese", "asian", "dumpling"),
+    "wings": ("wing", "chicken"),
+    "bbq": ("barbecue", "bbq"),
+    "bagel": ("bagel",),
+    "sandwich": ("sandwich", "deli"),
+}
+
+# Dietary query tokens → the Google Place attribute that must be True for the
+# place to be a hard match. "vegan" maps to servesVegetarianFood as a proxy
+# (Google has no servesVegan flag), with a name-match fallback for places
+# whose name explicitly says "vegan".
+DIETARY_ATTR_HINTS = {
+    "vegetarian": "servesVegetarianFood",
+    "veggie": "servesVegetarianFood",
+    "vegan": "servesVegetarianFood",
+}
+
 MOVIE_QUERY_TERMS = {"movie", "movies", "film", "films"}
 MOVIE_QUERY_EXPANSIONS = {"cinema", "theater", "theatre", "screening"}
 COFFEE_LOCATION_TERMS = {
@@ -559,7 +589,7 @@ def infer_query_intents(query_tokens):
     social_intent = bool({"social", "group", "club", "event", "meet", "meeting", "people"} & query_tokens)
     gaming_intent = bool(query_tokens & GAMING_QUERY_TERMS) or ("board" in query_tokens and "game" in query_tokens)
     return {
-        "food": bool({"food", "dining", "restaurant", "eat", "lunch", "dinner", "breakfast", "coffee", "cafe"} & query_tokens) or bool(query_tokens & FOOD_ITEM_TERMS),
+        "food": bool({"food", "dining", "restaurant", "eat", "lunch", "dinner", "breakfast", "coffee", "cafe"} & query_tokens) or bool(query_tokens & FOOD_ITEM_TERMS) or bool(query_tokens & DIETARY_ATTR_HINTS.keys()),
         "coffee": bool({"coffee", "espresso", "latte", "cafe"} & query_tokens),
         "cheap": bool({"cheap", "budget", "affordable", "low", "cost", "free"} & query_tokens),
         "gaming": gaming_intent,
@@ -665,7 +695,7 @@ def compute_intent_alignment_adjustment(query_intents, doc):
 
 def is_food_relevant_doc(doc):
     source = doc.get("source", "")
-    if source == "dining":
+    if source in {"dining", "cafes"}:
         return True
     if source != "osm":
         return False
@@ -683,6 +713,56 @@ def is_food_relevant_doc(doc):
         "cafe", "coffee", "restaurant", "pizza", "grill", "deli", "bagel",
         "eatery", "kitchen", "bistro", "bakery", "burger", "tea",
     ])
+
+
+def is_cuisine_match(query_tokens, doc):
+    """
+    Return False when the query names a specific cuisine and this doc is a
+    food place whose Google Place types clearly don't match. Other docs
+    (non-food queries, non-food docs, places without Google type data, or
+    places whose name itself contains the cuisine) pass through.
+    """
+    cuisines = query_tokens & CUISINE_TYPE_HINTS.keys()
+    if not cuisines:
+        return True
+    if not is_food_relevant_doc(doc):
+        return True
+
+    title = normalize_whitespace(doc.get("title", "")).lower()
+    if any(c in title for c in cuisines):
+        return True
+
+    google_types = doc.get("google_types") or []
+    if not google_types:
+        return True  # No Google data to filter on — keep based on lexical match.
+
+    type_blob = " ".join(google_types).lower()
+    expected = {hint for c in cuisines for hint in CUISINE_TYPE_HINTS[c]}
+    return any(hint in type_blob for hint in expected)
+
+
+def is_dietary_match(query_tokens, doc):
+    """
+    Return False when the query asks for a specific dietary preference and this
+    doc is a food place that doesn't satisfy it. Pass-through cases:
+    non-dietary queries, non-food docs, places without attribute data, and
+    places whose name itself contains the dietary term.
+    """
+    diets = query_tokens & DIETARY_ATTR_HINTS.keys()
+    if not diets:
+        return True
+    if not is_food_relevant_doc(doc):
+        return True
+
+    title = normalize_whitespace(doc.get("title", "")).lower()
+    if any(d in title for d in diets):
+        return True
+
+    attrs = doc.get("place_attributes") or {}
+    if not attrs:
+        return True  # No Google attribute data — keep based on lexical match.
+
+    return any(attrs.get(DIETARY_ATTR_HINTS[d]) is True for d in diets)
 
 
 def is_coffee_relevant_doc(doc):
@@ -1527,6 +1607,26 @@ def build_search_index():
         if review_texts:
             doc["search_text"] = doc["search_text"] + " " + review_texts
 
+        # Inject Google Place types as tokens so cuisine queries match the actual
+        # establishment type, not just incidental review mentions. Snake_case types
+        # like "pizza_restaurant" decompose into individual searchable tokens.
+        google_types = list(places_data.get("types") or [])
+        primary = places_data.get("primary_type")
+        if primary and primary not in google_types:
+            google_types.append(primary)
+        if google_types:
+            type_tokens = " ".join(t.replace("_", " ") for t in google_types)
+            doc["search_text"] = doc["search_text"] + " " + type_tokens
+            doc["google_types"] = google_types
+            doc["primary_type"] = primary
+
+        # Boolean attribute flags (servesVegetarianFood, outdoorSeating, etc.)
+        # used for dietary/feature hard filters. Not added to search_text — TF-IDF
+        # over snake_case attribute names would mostly create noise.
+        attrs = places_data.get("attributes")
+        if attrs:
+            doc["place_attributes"] = attrs
+
     # Pass docs through standard preprocessing pipeline
     processed = preprocessing.process_documents(docs)
     deduped = processed["docs"]
@@ -1790,6 +1890,38 @@ def keyword_fallback_search(
     results.sort(key=lambda item: item["score"], reverse=True)
     return results[:top_k]
 
+def _enrich_results_with_places_data(results):
+    """Attach cached Google Places data (rating, hours, photo, business_status, etc.)
+    to osm/dining results, and synthesize a minimal places_data for recs entries
+    whose 'website' field is actually an image URL on a Cornell CDN. Mutates in
+    place. Used by both the main and keyword_fallback search paths so result
+    cards render consistently regardless of which retrieval path was taken.
+    """
+    PLACES_SOURCES = {"osm", "dining"}
+    for result in results:
+        if result.get("places_data") or result.get("source") not in PLACES_SOURCES:
+            continue
+        places_data = get_places_data(result["id"])
+        if places_data:
+            result["places_data"] = places_data
+            if places_data.get("website") and not result.get("url"):
+                result["url"] = places_data["website"]
+            rating = places_data.get("rating")
+            rating_count = places_data.get("rating_count", 0)
+            if rating and rating_count and rating_count >= 5:
+                confidence = min(rating_count, 100) / 100.0
+                rating_bonus = (rating - 3.0) / 2.0 * 0.05 * confidence
+                result["score"] = round(result["score"] + rating_bonus, 6)
+
+    for result in results:
+        if result.get("source") != "recs" or result.get("places_data"):
+            continue
+        url = result.get("url") or ""
+        if url.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+            result["places_data"] = {"photo_path": url}
+            result["url"] = None
+
+
 def search_documents(query, top_k=10, source="all", mode="svd", future_only=True, date_from=None, date_to=None, original_query=None, include_reddit=True, area="any"):
     query = query.strip()
     original_query = (original_query or query).strip()
@@ -1842,6 +1974,7 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
             query_intents=query_intents,
         )
         if fallback_results:
+            _enrich_results_with_places_data(fallback_results)
             return fallback_results, {"positive": [], "negative": []}, "keyword_fallback"
 
     query_terms = set(query_vec.keys())
@@ -1882,6 +2015,10 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
         if query_intents.get("food") and doc.get("source") in {"osm", "libraries"} and not is_food_relevant_doc(doc):
             continue
         if query_intents.get("coffee") and doc.get("source") in {"osm", "dining", "cafes"} and not is_coffee_relevant_doc(doc):
+            continue
+        if not is_cuisine_match(query_tokens, doc):
+            continue
+        if not is_dietary_match(query_tokens, doc):
             continue
 
         primary_lexical_score = cosine_similarity(primary_query_vec, primary_query_norm, doc["_tfidf"], doc["_norm"])
@@ -2068,24 +2205,7 @@ def search_documents(query, top_k=10, source="all", mode="svd", future_only=True
         if len(deduped) >= top_k:
             break
 
-    # Enrich place results with pre-fetched Google Places data (website, hours, rating, etc.)
-    PLACES_SOURCES = {"osm", "dining"}
-    for result in deduped:
-        if result["source"] not in PLACES_SOURCES:
-            continue
-        places_data = get_places_data(result["id"])
-        if places_data:
-            result["places_data"] = places_data
-            # Prefer Places API website over OSM website when present
-            if places_data.get("website") and not result.get("url"):
-                result["url"] = places_data["website"]
-            # Adjust score based on Google rating: ±0.05 max, weighted by review count confidence
-            rating = places_data.get("rating")
-            rating_count = places_data.get("rating_count", 0)
-            if rating and rating_count and rating_count >= 5:
-                confidence = min(rating_count, 100) / 100.0
-                rating_bonus = (rating - 3.0) / 2.0 * 0.05 * confidence
-                result["score"] = round(result["score"] + rating_bonus, 6)
+    _enrich_results_with_places_data(deduped)
 
     deduped.sort(key=lambda x: x["score"], reverse=True)
 
@@ -2432,6 +2552,7 @@ def api_chat_results():
     data = request.get_json() or {}
     user_message = (data.get("message") or "").strip()
     results = data.get("results") or []
+    history = data.get("history") or []
     if not user_message:
         return jsonify({"error": "Message is required"}), 400
 
@@ -2454,6 +2575,11 @@ def api_chat_results():
         if desc:
             lines.append(f"   About: {desc}")
         places = result.get("places_data") or {}
+        bs = places.get("business_status")
+        if bs == "CLOSED_PERMANENTLY":
+            lines.append("   STATUS: PERMANENTLY CLOSED — do not recommend.")
+        elif bs == "CLOSED_TEMPORARILY":
+            lines.append("   STATUS: Temporarily closed — flag this if recommending.")
         if places.get("rating") is not None:
             rating_line = f"   Rating: {places['rating']}"
             if places.get("rating_count"):
@@ -2478,21 +2604,39 @@ def api_chat_results():
         context_parts.append("\n".join(lines))
 
     context_text = "\n\n".join(context_parts) or "No results available."
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a helpful local guide for Ithaca, NY. "
-                "The user searched SideQuest and you have their current search results. "
-                "Answer their questions based only on those results. "
-                "Be concise and practical. If something isn't in the results, say so."
-            ),
-        },
-        {
-            "role": "user",
-            "content": f"Current search results:\n\n{context_text}\n\nQuestion: {user_message}",
-        },
-    ]
+
+    from datetime import datetime
+    today = datetime.now().strftime("%A, %B %d, %Y")
+
+    system_prompt = (
+        f"You are a sharp, friendly local guide for Ithaca, NY. Today is {today}.\n\n"
+        "The user is browsing SideQuest search results, listed below. Answer using the data "
+        "provided — don't invent ratings, hours, or facts not present in the listing.\n\n"
+        "Rules:\n"
+        "• NEVER recommend a place marked PERMANENTLY CLOSED. If the user asks about one, "
+        "say it's closed and suggest a similar open option from the list.\n"
+        "• Mention 'Temporarily closed' if recommending one.\n"
+        "• Ratings come from Google (out of 5). Price is shown in $ symbols ($ to $$$$).\n"
+        "• If something isn't in the data, say 'the results don't say' rather than guessing.\n"
+        "• Be concise and conversational. Skip preambles like 'Great question!'.\n"
+        "• When comparing places, lead with the recommendation, then a one-line reason.\n"
+        "• Use markdown formatting (bold names, bullet lists) when it makes the answer easier to scan.\n"
+    )
+
+    messages = [{"role": "system", "content": system_prompt}]
+
+    # Prior conversation: include up to the last 6 turns so follow-up questions
+    # ("which one is cheapest?" → "is that one open Saturday?") keep their thread.
+    for turn in history[-6:]:
+        role = "user" if turn.get("isUser") else "assistant"
+        text = (turn.get("text") or "").strip()
+        if text:
+            messages.append({"role": role, "content": text})
+
+    messages.append({
+        "role": "user",
+        "content": f"Current search results:\n\n{context_text}\n\nQuestion: {user_message}",
+    })
 
     def generate():
         try:

@@ -30,6 +30,25 @@ PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
 with open(DATA_FILE, encoding="utf-8") as f:
     data = json.load(f)
 
+# Also link any manually-saved photos: entries with neither photo_name nor
+# photo_path get their photo_path filled in if a matching file already exists
+# under frontend/public/photos/. Checks common image extensions.
+MANUAL_EXTS = (".jpg", ".jpeg", ".png", ".webp")
+linked_manual = 0
+for doc_id, entry in data.items():
+    if not isinstance(entry, dict):
+        continue
+    if entry.get("photo_path") or entry.get("photo_name"):
+        continue
+    base = doc_id.replace(":", "-").replace("/", "-")
+    for ext in MANUAL_EXTS:
+        if (PHOTOS_DIR / f"{base}{ext}").exists():
+            entry["photo_path"] = f"/photos/{base}{ext}"
+            linked_manual += 1
+            break
+if linked_manual:
+    print(f"Linked {linked_manual} manually-saved photos.")
+
 to_download = [
     (doc_id, entry)
     for doc_id, entry in data.items()

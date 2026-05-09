@@ -29,7 +29,8 @@ BUSINESS_SUBCATEGORIES = {
     "bank",
     "attraction", "museum", "gallery", "theme_park", "viewpoint",
     "aquarium", "zoo",
-    "gym", "sports_centre",
+    "gym", "sports_centre", "fitness_centre", "swimming_pool",
+    "park", "playground", "nature_reserve", "dog_park",
     "car_wash", "car_repair", "laundry", "dry_cleaning",
     "post_office", "library",
 }
@@ -56,6 +57,25 @@ _FIELDS = ",".join([
     "places.priceLevel",
     "places.photos",
     "places.reviews",
+    "places.primaryType",
+    "places.types",
+    "places.businessStatus",
+    "places.location",
+    "places.servesVegetarianFood",
+    "places.servesBreakfast",
+    "places.servesBrunch",
+    "places.servesLunch",
+    "places.servesDinner",
+    "places.servesDessert",
+    "places.servesBeer",
+    "places.servesWine",
+    "places.servesCocktails",
+    "places.outdoorSeating",
+    "places.delivery",
+    "places.takeout",
+    "places.dineIn",
+    "places.goodForGroups",
+    "places.goodForChildren",
 ])
 
 
@@ -95,24 +115,23 @@ def is_business(place):
         return True
     if cat == "tourism" and sub not in ("camp_pitch", "picnic_site", "information"):
         return True
-    if cat == "amenity" and sub in BUSINESS_SUBCATEGORIES:
+    if cat in ("amenity", "leisure") and sub in BUSINESS_SUBCATEGORIES:
         return True
     if "dining" in place["id"]:
         return True
     return False
 
 
-def fetch_place(name, lat, lon):
-    """Call Google Places Text Search and return enrichment dict or None."""
-    body = {"textQuery": name, "maxResultCount": 1}
-    if lat and lon:
-        body["locationBias"] = {
-            "circle": {
-                "center": {"latitude": lat, "longitude": lon},
-                "radius": 500.0,
-            }
-        }
+def _haversine_km(lat1, lon1, lat2, lon2):
+    import math
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
+
+def _call_search(body):
     try:
         resp = requests.post(
             "https://places.googleapis.com/v1/places:searchText",
@@ -125,10 +144,53 @@ def fetch_place(name, lat, lon):
             timeout=8,
         )
         resp.raise_for_status()
-        places = resp.json().get("places", [])
+        return resp.json().get("places", [])
     except Exception as e:
         print(f"  ERROR: {e}")
-        return None
+        return "ERROR"
+
+
+def fetch_place(name, lat, lon):
+    """Call Google Places Text Search and return enrichment dict or None.
+
+    Two-phase: first a HARD locationRestriction (10km box) to avoid famous-name
+    mismatches like Bryant Park=NYC. If that returns nothing, fall back to a
+    soft locationBias that DOES include CLOSED_PERMANENTLY places, then verify
+    the result is geographically near the expected pin to discard NYC-style
+    drift. The fallback is what surfaces closed local businesses so we can
+    tag them as permanently closed in the UI.
+    """
+    body = {"textQuery": name, "maxResultCount": 1}
+    if lat and lon:
+        import math
+        d_lat = 10000.0 / 111_000.0
+        d_lon = 10000.0 / (111_000.0 * max(math.cos(math.radians(lat)), 0.01))
+        body["locationRestriction"] = {
+            "rectangle": {
+                "low": {"latitude": lat - d_lat, "longitude": lon - d_lon},
+                "high": {"latitude": lat + d_lat, "longitude": lon + d_lon},
+            }
+        }
+
+    places = _call_search(body)
+    if places == "ERROR":
+        return "ERROR"
+
+    if not places and lat and lon:
+        # Fallback: soft bias picks up CLOSED_PERMANENTLY places (which
+        # locationRestriction silently filters out).
+        body.pop("locationRestriction", None)
+        body["locationBias"] = {"circle": {"center": {"latitude": lat, "longitude": lon}, "radius": 15000.0}}
+        places = _call_search(body)
+        if places == "ERROR":
+            return "ERROR"
+        # Verify the bias result is actually local — Google's relevance ranking
+        # can override the bias for famous names, so reject results > 15km away.
+        if places:
+            loc = places[0].get("location") or {}
+            r_lat, r_lon = loc.get("latitude"), loc.get("longitude")
+            if r_lat is None or r_lon is None or _haversine_km(lat, lon, r_lat, r_lon) > 15.0:
+                places = []
 
     if not places:
         return None
@@ -157,16 +219,38 @@ def fetch_place(name, lat, lon):
             "relative_time": r.get("relativePublishTimeDescription", ""),
         })
 
-    return {
+    attrs = {
+        k: p.get(k) for k in (
+            "servesVegetarianFood", "servesBreakfast", "servesBrunch",
+            "servesLunch", "servesDinner", "servesDessert",
+            "servesBeer", "servesWine", "servesCocktails",
+            "outdoorSeating", "delivery", "takeout", "dineIn",
+            "goodForGroups", "goodForChildren",
+        ) if k in p
+    }
+
+    result = {
         "website": p.get("websiteUri") or None,
         "phone": p.get("nationalPhoneNumber") or None,
         "hours": hours,
         "rating": p.get("rating"),
         "rating_count": p.get("userRatingCount"),
         "price_level": _PRICE_LEVEL_MAP.get(p.get("priceLevel", ""), None),
-        "photo_name": photo_name,
         "reviews": reviews or None,
+        "primary_type": p.get("primaryType") or None,
+        "types": p.get("types") or None,
+        "attributes": attrs or None,
     }
+    # Only carry business_status when it's NOT operational — keeps the cache
+    # quiet for the common case and makes "is closed" a simple truthy check.
+    status = p.get("businessStatus")
+    if status and status != "OPERATIONAL":
+        result["business_status"] = status
+    # Only include photo_name when Google actually returned one — avoids
+    # leaving photo_name: null residue in the cache for photo-less places.
+    if photo_name:
+        result["photo_name"] = photo_name
+    return result
 
 
 def main():
@@ -197,7 +281,24 @@ def main():
             if is_business(place):
                 candidates.append(place)
 
-    to_fetch = [p for p in candidates if p["id"] not in cache]
+    def needs_fetch(p):
+        if p["id"] not in cache:
+            return True
+        cached = cache[p["id"]]
+        # Backfill: re-fetch any cached dict that's missing fields we now request.
+        # Update the key list when adding new fields to the API request.
+        if not isinstance(cached, dict):
+            return False
+        if "primary_type" not in cached or "attributes" not in cached:
+            return True
+        # Re-try entries that lack any photo — Google may have added one since
+        # the last fetch. photo_path means a downloaded file exists; photo_name
+        # means we have an unprocessed reference. Either is sufficient.
+        if not cached.get("photo_path") and not cached.get("photo_name"):
+            return True
+        return False
+
+    to_fetch = [p for p in candidates if needs_fetch(p)]
 
     print(f"\nTotal businesses identified: {len(candidates)}")
     print(f"Already cached:              {len(candidates) - len(to_fetch)}")
@@ -220,7 +321,20 @@ def main():
 
         data = fetch_place(place["name"], place["lat"], place["lon"])
 
-        if data:
+        if data == "ERROR":
+            errors += 1
+            # Don't touch the cache — leave any existing entry intact for retry later.
+            if errors >= 5 and found == 0:
+                print("\nAborting: 5+ errors with no successes. Check API key / Places API (New) enablement.")
+                break
+        elif data:
+            # Preserve photo_path if it was already populated by download_photos.py;
+            # the new fetch only carries photo_name (raw Google reference) and would
+            # otherwise overwrite the local-file path the frontend depends on.
+            existing = cache.get(place["id"])
+            if isinstance(existing, dict) and existing.get("photo_path"):
+                data["photo_path"] = existing["photo_path"]
+                data.pop("photo_name", None)
             cache[place["id"]] = data
             found += 1
             print(f"OK  (rating={data.get('rating')}, has_website={bool(data.get('website'))})")
