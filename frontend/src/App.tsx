@@ -113,6 +113,82 @@ const STOP_WORDS = new Set([
   'with',
 ])
 
+const SOURCE_LABELS: Record<string, string> = {
+  campusgroups: 'Event',
+  osm: 'Place',
+  recs: 'Recreation',
+  trails: 'Trail',
+  dining: 'Dining',
+  libraries: 'Study Spot',
+  cafes: 'Cafe',
+  reddit: 'Community',
+}
+
+const DOC_TYPE_LABELS: Record<string, string> = {
+  dining_location: 'Dining',
+  event: 'Event',
+  location: 'Spot',
+  thread: 'Thread',
+}
+
+const GENERIC_CATEGORY_LABELS = new Set(['amenity', 'building', 'highway', 'leisure', 'shop', 'tourism'])
+const GENERIC_ORGANIZATION_LABELS = new Set(['osm', 'dining', 'recs', 'trails', 'libraries', 'cafes'])
+
+const toTitleCase = (value: string): string => {
+  return value
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .map((word) => {
+      const lower = word.toLowerCase()
+      if (lower === 'osm') return 'OSM'
+      return lower.charAt(0).toUpperCase() + lower.slice(1)
+    })
+    .join(' ')
+}
+
+const formatSourceLabel = (source: string): string => {
+  const normalized = source.trim().toLowerCase()
+  return SOURCE_LABELS[normalized] ?? toTitleCase(source)
+}
+
+const formatDocTypeLabel = (docType: string): string => {
+  const normalized = docType.trim().toLowerCase()
+  return DOC_TYPE_LABELS[normalized] ?? toTitleCase(docType)
+}
+
+const getCategoryLabel = (category: string): string => {
+  const normalized = category.trim().toLowerCase()
+  if (!normalized || GENERIC_CATEGORY_LABELS.has(normalized)) {
+    return ''
+  }
+  return toTitleCase(category)
+}
+
+const getOrganizationLabel = (result: SearchResult): string => {
+  const normalized = result.organization.trim().toLowerCase()
+  if (!normalized || GENERIC_ORGANIZATION_LABELS.has(normalized)) {
+    return ''
+  }
+  return result.organization
+}
+
+const formatResultDescription = (description: string): string => {
+  const cleaned = description.replace(/\s+Category:\s.*$/i, '').trim()
+  return cleaned || description
+}
+
+const getSourceChipLabel = (result: SearchResult): string => {
+  const sourceLabel = formatSourceLabel(result.source)
+  const docTypeLabel = formatDocTypeLabel(result.doc_type)
+  if (!sourceLabel) return docTypeLabel
+  if (!docTypeLabel || docTypeLabel === sourceLabel || docTypeLabel === 'Spot') {
+    return sourceLabel
+  }
+  return `${sourceLabel} · ${docTypeLabel}`
+}
+
 function App(): JSX.Element {
   const [page, setPage] = useState<AppPage>(getCurrentPage)
   const [searchInput, setSearchInput] = useState<string>('')
@@ -165,7 +241,7 @@ function App(): JSX.Element {
   }
 
   const getActivityVisualLabel = (result: SearchResult): string => {
-    return result.category || result.source || result.doc_type || 'Activity'
+    return getCategoryLabel(result.category) || formatDocTypeLabel(result.doc_type) || formatSourceLabel(result.source) || 'Activity'
   }
 
   const getActivityTone = (result: SearchResult): string => {
@@ -348,7 +424,7 @@ function App(): JSX.Element {
 
   const getSimilarActivities = (result: SearchResult): SearchResult[] => {
     const titleTokens = tokenizeForSimilarity(result.title)
-    const descriptionTokens = tokenizeForSimilarity(result.description)
+    const descriptionTokens = tokenizeForSimilarity(formatResultDescription(result.description))
     const dimensionKeys = new Set((result.matched_dimensions ?? []).map((dimension) => `${dimension.dimension}-${dimension.direction}`))
 
     return sortedResults
@@ -363,7 +439,7 @@ function App(): JSX.Element {
         if (candidate.organization && result.organization && candidate.organization === result.organization) similarity += 2
 
         similarity += Math.min(getSharedTokenCount(titleTokens, tokenizeForSimilarity(candidate.title)), 4) * 0.7
-        similarity += Math.min(getSharedTokenCount(descriptionTokens, tokenizeForSimilarity(candidate.description)), 5) * 0.25
+        similarity += Math.min(getSharedTokenCount(descriptionTokens, tokenizeForSimilarity(formatResultDescription(candidate.description))), 5) * 0.25
 
         const sharedDimensions = (candidate.matched_dimensions ?? []).filter((dimension) => dimensionKeys.has(`${dimension.dimension}-${dimension.direction}`)).length
         similarity += sharedDimensions * 1.4
@@ -1254,6 +1330,7 @@ function App(): JSX.Element {
                     className={`episode-item ${getActivityTone(result)}`}
                     role="button"
                     tabIndex={0}
+                    aria-label={`View details for ${result.title}`}
                     onClick={() => setSelectedResult(result)}
                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setSelectedResult(result) }}
                   >
@@ -1298,7 +1375,7 @@ function App(): JSX.Element {
 
                   {result.description && (
                     <p className={`episode-desc ${result.source === 'reddit' ? 'reddit-truncated' : ''}`}>
-                      {result.description}
+                      {formatResultDescription(result.description)}
                     </p>
                   )}
 
@@ -1328,10 +1405,12 @@ function App(): JSX.Element {
 
                   <div className="episode-meta-container">
                     {result.source && (
-                      <span className="meta-chip source-chip">{result.source}{result.doc_type && result.doc_type !== result.source ? ` · ${result.doc_type.replace(/_/g, ' ')}` : ''}</span>
+                      <span className="meta-chip source-chip">
+                        {getSourceChipLabel(result)}
+                      </span>
                     )}
-                    {result.category && (
-                      <span className="meta-chip">{result.category}</span>
+                    {getCategoryLabel(result.category) && (
+                      <span className="meta-chip">{getCategoryLabel(result.category)}</span>
                     )}
                     {result.location && (
                       <span className="meta-chip">📍 {result.location}</span>
@@ -1339,8 +1418,8 @@ function App(): JSX.Element {
                     {result.start_time && (
                       <span className="meta-chip">🕒 {result.start_time}</span>
                     )}
-                    {result.organization && (
-                      <span className="meta-chip">Host: {result.organization}</span>
+                    {getOrganizationLabel(result) && (
+                      <span className="meta-chip">Host: {getOrganizationLabel(result)}</span>
                     )}
                   </div>
 
@@ -1360,7 +1439,9 @@ function App(): JSX.Element {
                             onKeyDown={(e) => e.stopPropagation()}
                           >
                             <span className="similar-activity-name">{activity.title}</span>
-                            {activity.category && <span className="similar-activity-category">{activity.category}</span>}
+                            <span className="similar-activity-category">
+                              {getCategoryLabel(activity.category) || formatSourceLabel(activity.source)}
+                            </span>
                           </button>
                         ))}
                       </div>
@@ -1422,7 +1503,7 @@ function App(): JSX.Element {
               )}
 
               <p className="modal-meta">
-                {[selectedResult.category, selectedResult.location].filter(Boolean).join(' · ')}
+                {[getCategoryLabel(selectedResult.category) || formatSourceLabel(selectedResult.source), selectedResult.location].filter(Boolean).join(' · ')}
               </p>
 
               <div className="modal-action-row">
@@ -1457,7 +1538,7 @@ function App(): JSX.Element {
               )}
 
               {selectedResult.description && (
-                <p className="modal-description">{selectedResult.description}</p>
+                <p className="modal-description">{formatResultDescription(selectedResult.description)}</p>
               )}
 
               {selectedResult.reddit_snippet && (

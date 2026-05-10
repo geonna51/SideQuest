@@ -19,6 +19,10 @@
   --activity-green: #2f7d55;
   --activity-teal: #167c80;
   --activity-blue: #2d5f9a;
+  --activity-accent: var(--activity-red);
+  --activity-accent-deep: var(--cornell-red-deep);
+  --activity-accent-soft: rgba(179, 27, 27, 0.1);
+  --activity-accent-wash: rgba(179, 27, 27, 0.045);
 }
 
 .sr-only {
@@ -1143,6 +1147,25 @@
 
 .episode-desc.reddit-truncated {
   -webkit-line-clamp: 2;
+}
+
+.reddit-snippet-bar {
+  margin: 0 0 1rem 0;
+  padding: 0.75rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--activity-accent) 16%, #ffffff);
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--cornell-ink);
+  font-family: 'Montserrat', sans-serif;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.episode-item > .reddit-snippet-bar {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .results-load-sentinel {
